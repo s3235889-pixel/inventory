@@ -1,154 +1,285 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>即時盤點管理系統</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>專業庫存補貨系統</title>
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --accent: #e67e22;
+            --bg: #f4f7f6;
+            --success: #27ae60;
+            --danger: #e74c3c;
+        }
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: var(--bg); margin: 0; padding: 15px; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: var(--primary); font-size: 1.4rem; margin-bottom: 20px; }
+        
+        .mode-switch { display: flex; gap: 10px; margin-bottom: 20px; }
+        .mode-btn { flex: 1; padding: 12px; border: 2px solid var(--primary); background: white; color: var(--primary); font-weight: bold; border-radius: 8px; cursor: pointer; }
+        .mode-btn.active { background: var(--primary); color: white; }
+
+        .search-box { margin-bottom: 15px; }
+        .search-box input { width: 100%; padding: 12px; font-size: 1.1rem; border: 2px solid #bdc3c7; border-radius: 8px; box-sizing: border-box; }
+
+        .category-tab { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 15px; border-bottom: 2px solid #ddd; padding-bottom: 10px; }
+        .tab-btn { padding: 8px 12px; border: 1px solid #ccc; background: #eee; cursor: pointer; border-radius: 5px; font-size: 0.9rem; }
+        .tab-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+        
+        .item-grid { display: none; grid-template-columns: 1fr; gap: 10px; }
+        .item-grid.active { display: grid; }
+        .item-row { display: flex; align-items: center; justify-content: space-between; padding: 10px; border-bottom: 1px solid #eee; background: #fafafa; border-radius: 6px; }
+        .item-info { flex: 1; display: flex; flex-direction: column; }
+        .item-name { font-size: 1.1rem; font-weight: 500; transition: color 0.2s; }
+        .item-name.has-value { color: var(--danger); font-weight: bold; }
+        .safety-tag { font-size: 0.75rem; color: #7f8c8d; margin-top: 2px; }
+        
+        .qty-select { width: 85px; padding: 8px; font-size: 1.1rem; border-radius: 4px; border: 1px solid #ccc; font-weight: bold; }
+        .threshold-input { width: 60px; padding: 6px; text-align: center; border: 1px solid #bdc3c7; border-radius: 4px; }
+
+        .settings-section { display: none; }
+        .settings-section.active { display: block; }
+        .config-card { background: #ecf0f1; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 10px; }
+        .config-card button { padding: 10px; font-weight: bold; border-radius: 6px; border: 1px solid #bdc3c7; background: white; cursor: pointer; }
+
+        #resultArea { margin-top: 25px; background: #2c3e50; color: #fff; padding: 15px; border-radius: 8px; display: none; }
+        .result-table { width: 100%; border-collapse: collapse; margin-top: 10px; background: #34495e; }
+        .result-table th, .result-table td { border: 1px solid #5a6c7d; padding: 10px; text-align: center; font-size: 0.9rem; }
+        .need-order { color: #ff7675; font-weight: bold; }
+        .order-qty { color: #55efc4; font-weight: bold; font-size: 1.1rem; }
+
+        .controls { margin-top: 25px; display: flex; gap: 10px; }
+        .action-btn { flex: 1; padding: 15px; font-size: 1.1rem; border: none; border-radius: 8px; cursor: pointer; color: white; font-weight: bold; }
+        .btn-confirm { background: #3498db; }
+        .btn-clear { background: #95a5a6; }
+
+        @media (min-width: 600px) { .item-grid { grid-template-columns: 1fr 1fr; gap: 12px; } }
+    </style>
 </head>
-<body class="bg-slate-100 p-6 min-h-screen">
-  <div class="max-w-4xl mx-auto bg-white p-6 rounded-xl shadow-md">
-    <h1 class="text-2xl font-bold mb-6 text-gray-800">雲端盤點管理系統</h1>
+<body>
 
-    <div class="bg-gray-50 p-4 rounded-lg mb-6 border border-gray-200">
-      <h2 id="form-title" class="text-lg font-semibold mb-3 text-gray-700">新增盤點項目</h2>
-      <input type="hidden" id="item-id">
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <input type="text" id="item-name" placeholder="品項名稱" class="border p-2 rounded w-full">
-        <input type="number" id="item-qty" placeholder="數量" class="border p-2 rounded w-full">
-        <div class="flex gap-2">
-          <button onclick="saveItem()" id="btn-save" class="bg-blue-600 text-white px-4 py-2 rounded w-full hover:bg-blue-700">新增</button>
-          <button onclick="resetForm()" id="btn-cancel" class="bg-gray-400 text-white px-4 py-2 rounded hidden hover:bg-gray-500">取消</button>
+<div class="container">
+    <h1>🏪 門市庫存盤點系統</h1>
+
+    <div class="mode-switch">
+        <button id="btnCountMode" class="mode-btn active" onclick="switchMode('count')">📝 開始點貨</button>
+        <button id="btnSetMode" class="mode-btn" onclick="switchMode('setting')">⚙️ 設定底數</button>
+    </div>
+    
+    <div id="countSection">
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="🔍 快速搜尋品項..." oninput="filterItems()">
         </div>
-      </div>
+        <div class="category-tab" id="tabs"></div>
+        <div id="itemContainers"></div>
+        <div class="controls">
+            <button class="action-btn btn-clear" onclick="resetForm()">重設數量</button>
+            <button class="action-btn btn-confirm" onclick="generateReport()">確認點貨</button>
+        </div>
+        <div id="resultArea">
+            <h3 style="margin:0 0 10px 0;">📋 建議補貨清單</h3>
+            <table class="result-table">
+                <thead>
+                    <tr><th>品項</th><th>現量</th><th>底數</th><th>建議進貨</th></tr>
+                </thead>
+                <tbody id="summaryTableBody"></tbody>
+            </table>
+        </div>
     </div>
 
-    <div class="flex justify-between items-center mb-4">
-      <h2 class="text-lg font-semibold text-gray-700">目前盤點清單</h2>
-      <button onclick="fetchData()" class="text-sm bg-gray-200 px-3 py-1 rounded hover:bg-gray-300">🔄 重新整理</button>
+    <div id="settingSection" class="settings-section">
+        <div class="config-card">
+            <button onclick="exportSettings()">📥 複製設定代碼</button>
+            <button onclick="triggerImport()">📤 貼上設定代碼</button>
+        </div>
+        <div id="settingList" class="item-grid active"></div>
     </div>
+</div>
 
-    <div class="overflow-x-auto">
-      <table class="min-w-full border-collapse border border-gray-200">
-        <thead>
-          <tr class="bg-gray-100 text-left text-sm font-semibold text-gray-600 border-b">
-            <th class="p-3">品項名稱</th>
-            <th class="p-3">數量</th>
-            <th class="p-3">最後更新時間</th>
-            <th class="p-3 text-center">操作</th>
-          </tr>
-        </thead>
-        <tbody id="table-body" class="divide-y divide-gray-200 text-sm text-gray-700">
-          <tr><td colspan="4" class="p-4 text-center text-gray-400">資料載入中...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
+<script>
+    // 已寫死包含底數 (safetyStocks) 的全新預設設定代碼
+    const RAW_CODE = "eyJjYXRlZ29yaWVzIjpbIuacquWIhumhniIsIuWMheadkCIsIuWNsOWIt+WTgSIsIueUnOWTgemjn+adkCIsIuWGsOWTgemjn+adkCIsIumvm+mtmueHkumjn+adkCIsIuaLiem6temjn+adkCIsIua4hea9lOeUqOWTgSJdLCJpdGVtTWFwIjp7IlMiOiLnlJzlk4Hpo5/mnZAiLCJLIjoi55Sc5ZOB6aOf5p2QIiwiTSI6IueUnOWTgemjn+adkCIsIkwiOiLnlJzlk4Hpo5/mnZAiLCLns5bmsLQiOiLnlJzlk4Hpo5/mnZAiLCLosYboirEiOiLnlJzlk4Hpo5/mnZAiLCLntIXojLYiOiLnlJzlk4Hpo5/mnZAiLCLntIXosYYiOiLnlJzlk4Hpo5/mnZAiLCLolo/ku4HmlpkiOiLnlJzlk4Hpo5/mnZAiLCLolo/ku4Hmua8iOiLnlJzlk4Hpo5/mnZAiLCLntqDosYYiOiLlhrDlk4Hpo5/mnZAiLCLoirHosYYiOiLlhrDlk4Hpo5/mnZAiLCLoirHnlJ8iOiLnlJzlk4Hpo5/mnZAiLCLoipLlh40iOiLlhrDlk4Hpo5/mnZAiLCLlt6flh40iOiLlhrDlk4Hpo5/mnZAiLCLojpPlh40iOiLlhrDlk4Hpo5/mnZAiLCLmhJvnjokiOiLnlJzlk4Hpo5/mnZAiLCLniafloLTniZvlpbYiOiLlhrDlk4Hpo5/mnZAiLCLnoazoirHnlJ8iOiLlhrDlk4Hpo5/mnZAiLCLmppvmnpwiOiLpr5vprZrnh5Lpo5/mnZAiLCLpq5jmua8iOiLmi4npurXpo5/mnZAiLCLmi4npurUiOiLmi4npurXpo5/mnZAiLCLom4siOiLmi4npurXpo5/mnZAiLCLnrY3kub4iOiLmi4npurXpo5/mnZAiLCLolKUiOiLmi4npurXpo5/mnZAiLCLokpwiOiLmi4npurXpo5/mnZAiLCLlj4nnh5IiOiLmi4npurXpo5/mnZAiLCLpurvovqPphqwiOiLmi4npurXpo5/mnZAiLCLojYnojpPphqwiOiLlhrDlk4Hpo5/mnZAiLCLlh7rllq7ntJkiOiLljbDliLflk4EiLCLlh7rllq7osrzntJkiOiLljbDliLflk4EiLCLnhorospPlh7rllq7ntJkiOiLljbDliLflk4EiLCLprZrnmq4iOiLpr5vprZrnh5Lpo5/mnZAiLCLnmb3ljaEiOiLpr5vprZrnh5Lpo5/mnZAiLCJN5Y2hIjoi6a+b6a2a54eS6aOf5p2QIiwi6buR5bKpIjoi6a+b6a2a54eS6aOf5p2QIiwi6JST6I6TIjoi6a+b6a2a54eS6aOf5p2QIiwi6a2a55So6IqL5rOlIjoi6a+b6a2a54eS6aOf5p2QIiwi576O5LmD5ruLIjoi6a+b6a2a54eS6aOf5p2QIiwi6LGa5rGBIjoi5ouJ6bq16aOf5p2QIiwi5pel5byP6Yas5rK5Ijoi5ouJ6bq16aOf5p2QIiwi5ZGz5ZmMIjoi5ouJ6bq16aOf5p2QIiwi5rOh6I+cIjoi5ouJ6bq16aOf5p2QIiwi546J57GzIjoi5ouJ6bq16aOf5p2QIiwi54WJ5LmzIjoi5Yaw5ZOB6aOf5p2QIiwi54Sm57OWIjoi5Yaw5ZOB6aOf5p2QIiwi5ben6YasIjoi5Yaw5ZOB6aOf5p2QIiwi5p6c57OWIjoi55Sc5ZOB6aOf5p2QIiwi5LuZ6I2J5rGBIjoi55Sc5ZOB6aOf5p2QIiwi6Zyc5reH5reL6aSF5p2vIjoi5Yaw5ZOB6aOf5p2QIiwi5ben6YWlIjoi5Yaw5ZOB6aOf5p2QIiwiT3JlbyI6IuWGsOWTgemjn+adkCIsIuibi+aNsiI6IuWGsOWTgemjn+adkCIsIueOieexs+eJhyI6IuWGsOWTgemjn+adkCIsIuaguOahgyI6IuWGsOWTgemjn+adkCIsIuiRoeiQhOS5viI6IuWGsOWTgemjn+adkCIsIuWltueQgyI6IueUnOWTgemjn+adkCIsIuePjeePoCI6IueUnOWTgemjn+adkCIsIuWQieWIqea5r+WMmSI6IuWMheadkCIsIuWGsOa5r+WMmSI6IuWMheadkCIsIuefree0sCI6IuWMheadkCIsIuefreeylyI6IuWMheadkCIsIumVt+e0sCAvIOmVt+eylyI6IuWMheadkCIsIuWfuuW6leeyiSI6IuWGsOWTgemjn+adkCIsIuaKueiMtueyiSI6IuWGsOWTgemjn+adkCIsIue2oOiMtuiRiSI6IueUnOWTgemjn+adkCIsIjUyMCDnopciOiLljIXmnZAiLCI1MjAg6JOLIjoi5YyF5p2QIiwiNzUwIOeilyI6IuWMheadkCIsIjc1MCDok4siOiLljIXmnZAiLCLmi4npurXnopciOiLljIXmnZAiLCLmi4npurXok4siOiLljIXmnZAiLCLpu57lv4Pmna8iOiLljIXmnZAiLCLpu57lv4Pok4siOiLljIXmnZAiLCLogZbku6Pmna8iOiLljIXmnZAiLCIzNjAg5p2vIjoi5YyF5p2QIiwiNTAwIOadryI6IuWMheadkCIsIjUwMCDnmb3mna8iOiLljIXmnZAiLCI3MDAg5p2vIjoi5YyF5p2QIiwiNzAwIOeZveadryI6IuWMheadkCIsIjMyMCDmna8iOiLljIXmnZAiLCI3MDAg55m95p2vIjoi5YyF5p2QIiwi5Ye45p2v6JOLIjoi5YyF5p2QIiwi54ax5p2v5aWXIjoi5YyF5p2QIiwi6buR5p2v6JOLIjoi5YyF5p2QIiwi6YCP5piO54ax5p2v6JOLIjoi5YyF5p2QIiwi6buD6KKLIjoi5YyF5p2QIiwiMSDmna/ooosiOiLljIXmnZAiLCLmiZPmtJ7ooosiOiLljIXmnZAiLCIxIOaWpOiiiyI6IuWMheadkCIsIjIg5pak6KKLIjoi5YyF5p2QIiwiMyDmlqTooosiOiLljIXmnZAiLCI1IOaWpOiiiyI6IuWMheadkCIsIjIg5p2v5p2/Ijoi5YyF5p2QIiwiNCDmna/mnb8iOiLljIXmnZAiLCI2IOadr+advyI6IuWMheadkCIsIjEyIOadr+advyI6IuWMheadkCIsIumtmuiyvOe0mSI6IuWMheadkCIsIumtmue0meiiiyI6IuWMheadkCIsIuWSluWVoeixhiI6IueUnOWTgemjn+adkCIsIuW7muaIv+e0meW3viI6Iua4hea9lOeUqOWTgSIsIuWwj+aKvSI6Iua4hea9lOeUqOWTgSIsIuWkp+aKvSI6Iua4hea9lOeUqOWTgSIsIua0l+eil+eyviI6Iua4hea9lOeUqOWTgSIsIuWwj+iYh+aJkyI6Iua4hea9lOeUqOWTgSIsIuWcsOadv+a4hea9lOWKkSI6Iua4hea9lOeUqOWTgSIsIuS/nemuruiGnCI6IuWMheadkCIsIuadr+iGnCI6IuWMheadkCIsIua1t+e2v+iPnOeTnOW4gyI6Iua4hea9lOeUqOWTgSIsIueyl+m5vSI6Iua4hea9lOeUqOWTgSIsIueZveembqiI6IuWGsOWTgemjn+adkCIsIuWltumbqiI6IuWGsOWTgemjn+adkCIsIuahkeakuemGrCI6IuWGsOWTgemjn+adkCIsIuaquOaqrOaxgSI6IueUnOWTgemjn+adkCIsIuiYi+aenCI6Iumvm+mtmueHkumjn+adkCIsIueZveeOiSI6Iumvm+mtmueHkumjn+adkCIsIui1t+WPuCI6Iumvm+mtmueHkumjn+adkCIsIua0i+iUpeiCiSI6IuaLiem6temjn+adkCIsIuiKi+eVquWckyI6IueUnOWTgemjn+adkCIsIuW4g+S4gSI6IuWGsOWTgemjn+adkCIsIuS4gOWPo+mFpSI6IuacquWIhumhniIsIumcnOa3h+a3i+WGsOainSI6IuacquWIhumhniIsIuett+WtkCI6IuWMheadkCIsIueTpuaWr+e9kCI6IuacquWIhumhniIsIuWeg+WcvuiiiyI6Iua4hea9lOeUqOWTgSIsIua8gueZveawtCI6Iua4hea9lOeUqOWTgSIsIuWkp+e9kOmGrOayuSI6IuaLiem6temjn+adkCIsIuWkluW4tuiPnOWWriI6IuWNsOWIt+WTgSIsIuacneWkqei+o+mGrCI6IuaLiem6temjn+adkCIsIumfk+W8j+i+o+mGrCI6IuaLiem6temjn+adkCIsIumAmuWlhyI6Iua4hea9lOeUqOWTgSIsIum6u+ayuSI6IuaLiem6temjn+adkCIsIuiSnOmFpSI6IuaLiem6temjn+adkCJ9LCJzYWZldHlTdG9ja3MiOnsi5LiA5Y+j6YWlIjo0LCI1MjAg56KXIjoyMCwiNTIwIOiTiyI6MjAsIjEg5pak6KKLIjoxMCwiMSDmna/ooosiOjEwLCIxMiDmna/mnb8iOjEsIjIg5pak6KKLIjo4fX0=";
 
-  <script>
-    // ⚠️ 請替換成你發布 GAS 取得的 Web App 網址
-    const API_URL = 'https://script.google.com/macros/s/AKfycbwaFkPHw9AApGjQVkCe3ij7Bmfgs19ECcDbxGAa3ZENgZ0VW0HDNclMga87MeebJKKr/exec';
-
-    // 讀取資料
-    async function fetchData() {
-      const tbody = document.getElementById('table-body');
-      tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-400">讀取最新資料中...</td></tr>';
-      
-      try {
-        const res = await fetch(API_URL);
-        const result = await res.json();
-        renderTable(result.data);
-      } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-red-500">載入失敗，請確認 API 網址設定。</td></tr>';
-      }
+    function getInitialData() {
+        try { 
+            return JSON.parse(decodeURIComponent(escape(atob(RAW_CODE)))); 
+        } catch (e) { 
+            return { categories: ["未分類"], itemMap: {}, safetyStocks: {} }; 
+        }
     }
 
-    // 渲染表格
-    function renderTable(data) {
-      const tbody = document.getElementById('table-body');
-      tbody.innerHTML = '';
+    const initialData = getInitialData();
+    let categories = JSON.parse(localStorage.getItem('myCategories')) || initialData.categories;
+    let itemMap = JSON.parse(localStorage.getItem('myItemMap')) || initialData.itemMap;
+    let safetyStocks = JSON.parse(localStorage.getItem('mySafetyStocks')) || initialData.safetyStocks || {}; 
+    let currentCounts = {}; 
 
-      if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-400">目前尚無資料</td></tr>';
-        return;
-      }
+    // 初始化所有品項的計數
+    Object.keys(itemMap).forEach(name => currentCounts[name] = 0);
 
-      data.forEach(item => {
-        const tr = document.createElement('tr');
-        tr.className = 'hover:bg-gray-50';
-        tr.innerHTML = `
-          <td class="p-3 font-medium">${item.itemName}</td>
-          <td class="p-3">${item.quantity}</td>
-          <td class="p-3 text-gray-500 text-xs">${item.updatedAt || '-'}</td>
-          <td class="p-3 text-center space-x-2">
-            <button onclick="editItem('${item.id}', '${item.itemName}', ${item.quantity})" class="bg-amber-500 text-white px-2 py-1 rounded text-xs hover:bg-amber-600">修改</button>
-            <button onclick="deleteItem('${item.id}')" class="bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600">刪除</button>
-          </td>
-        `;
-        tbody.appendChild(tr);
-      });
+    function saveData() {
+        localStorage.setItem('myCategories', JSON.stringify(categories));
+        localStorage.setItem('myItemMap', JSON.stringify(itemMap));
+        localStorage.setItem('mySafetyStocks', JSON.stringify(safetyStocks));
     }
 
-    // 新增或修改儲存
-    async function saveItem() {
-      const id = document.getElementById('item-id').value;
-      const itemName = document.getElementById('item-name').value.trim();
-      const quantity = document.getElementById('item-qty').value;
-
-      if (!itemName || quantity === '') {
-        alert('請填寫完整名稱與數量！');
-        return;
-      }
-
-      const action = id ? 'update' : 'create';
-      const payload = { action, id, itemName, quantity };
-
-      // 使用 text/plain 避免跨網域 OPTIONS 預檢請求
-      await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
-      });
-
-      resetForm();
-      fetchData();
+    function updateItemCount(selectElement, name) {
+        const val = parseInt(selectElement.value);
+        currentCounts[name] = val;
+        
+        const nameEl = selectElement.parentElement.querySelector('.item-name');
+        if (val > 0) {
+            nameEl.classList.add('has-value');
+        } else {
+            nameEl.classList.remove('has-value');
+        }
     }
 
-    // 準備修改
-    function editItem(id, name, qty) {
-      document.getElementById('item-id').value = id;
-      document.getElementById('item-name').value = name;
-      document.getElementById('item-qty').value = qty;
-      document.getElementById('form-title').innerText = '修改盤點項目';
-      document.getElementById('btn-save').innerText = '儲存變更';
-      document.getElementById('btn-cancel').classList.remove('hidden');
+    function switchMode(mode) {
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        if (mode === 'count') {
+            document.getElementById('btnCountMode').classList.add('active');
+            document.getElementById('countSection').style.display = 'block';
+            document.getElementById('settingSection').style.display = 'none';
+            renderCountingView();
+        } else {
+            document.getElementById('btnSetMode').classList.add('active');
+            document.getElementById('countSection').style.display = 'none';
+            document.getElementById('settingSection').style.display = 'block';
+            renderSettingView();
+        }
     }
 
-    // 刪除資料
-    async function deleteItem(id) {
-      if (!confirm('確定要刪除這筆資料嗎？')) return;
+    function renderCountingView() {
+        const tabs = document.getElementById('tabs');
+        const container = document.getElementById('itemContainers');
+        tabs.innerHTML = ''; container.innerHTML = '';
+        
+        const items = Object.keys(itemMap);
+        const activeCats = categories.filter(c => items.some(i => itemMap[i] === c));
 
-      await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'delete', id })
-      });
+        activeCats.forEach((cat, idx) => {
+            const btn = document.createElement('button');
+            btn.className = `tab-btn ${idx===0?'active':''}`;
+            btn.innerText = cat;
+            btn.onclick = (e) => {
+                document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+                document.querySelectorAll('.item-grid').forEach(g=>g.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById(`grid-${cat}`).classList.add('active');
+            };
+            tabs.appendChild(btn);
 
-      fetchData();
+            const grid = document.createElement('div');
+            grid.id = `grid-${cat}`;
+            grid.className = `item-grid ${idx===0?'active':''}`;
+            
+            items.filter(i => itemMap[i] === cat).forEach(name => {
+                const row = document.createElement('div');
+                row.className = 'item-row';
+                const count = currentCounts[name] || 0;
+                const safe = safetyStocks[name] || 0;
+
+                let opts = '';
+                for(let i=0; i<=100; i++) opts += `<option value="${i}" ${count===i?'selected':''}>${i}</option>`;
+
+                row.innerHTML = `
+                    <div class="item-info">
+                        <span class="item-name ${count>0?'has-value':''}">${name}</span>
+                        <span class="safety-tag">底數: ${safe}</span>
+                    </div>
+                    <select class="qty-select" onchange="updateItemCount(this, '${name}')">
+                        ${opts}
+                    </select>
+                `;
+                grid.appendChild(row);
+            });
+            container.appendChild(grid);
+        });
     }
 
-    // 重置表單
+    function renderSettingView() {
+        const list = document.getElementById('settingList');
+        list.innerHTML = '';
+        const items = Object.keys(itemMap).sort();
+
+        items.forEach(name => {
+            const row = document.createElement('div');
+            row.className = 'item-row';
+            row.innerHTML = `
+                <div style="flex:1"><strong>${name}</strong></div>
+                <div>
+                    底數: <input type="number" class="threshold-input" value="${safetyStocks[name]||0}" 
+                           onchange="safetyStocks['${name}']=parseInt(this.value)||0; saveData();">
+                </div>
+            `;
+            list.appendChild(row);
+        });
+    }
+
+    function generateReport() {
+        const tbody = document.getElementById('summaryTableBody');
+        tbody.innerHTML = '';
+        let hasData = false;
+
+        Object.keys(itemMap).forEach(name => {
+            const count = currentCounts[name] || 0;
+            const safe = safetyStocks[name] || 0;
+            const diff = safe - count;
+
+            if (count > 0 || diff > 0) {
+                hasData = true;
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${name}</td>
+                    <td>${count}</td>
+                    <td>${safe}</td>
+                    <td class="${diff > 0 ? 'need-order' : ''}">${diff > 0 ? `<span class="order-qty">補 ${diff}</span>` : '✅'}</td>
+                `;
+                tbody.appendChild(tr);
+            }
+        });
+
+        if (!hasData) return alert("請先輸入點貨數量");
+        document.getElementById('resultArea').style.display = 'block';
+        window.scrollTo(0, document.body.scrollHeight);
+    }
+
+    function filterItems() {
+        const q = document.getElementById('searchInput').value.toLowerCase();
+        document.querySelectorAll('.item-row').forEach(row => {
+            const text = row.querySelector('.item-name').innerText.toLowerCase();
+            row.style.display = text.includes(q) ? 'flex' : 'none';
+        });
+    }
+
     function resetForm() {
-      document.getElementById('item-id').value = '';
-      document.getElementById('item-name').value = '';
-      document.getElementById('item-qty').value = '';
-      document.getElementById('form-title').innerText = '新增盤點項目';
-      document.getElementById('btn-save').innerText = '新增';
-      document.getElementById('btn-cancel').classList.add('hidden');
+        if(confirm('確定清空現有盤點數？')) {
+            Object.keys(currentCounts).forEach(k => currentCounts[k] = 0);
+            renderCountingView();
+            document.getElementById('resultArea').style.display = 'none';
+        }
     }
 
-    // 頁面初次載入
-    fetchData();
-  </script>
+    function exportSettings() {
+        const code = btoa(unescape(encodeURIComponent(JSON.stringify({categories, itemMap, safetyStocks}))));
+        prompt("請複製下方代碼：", code);
+    }
+
+    function triggerImport() {
+        const code = prompt("請貼上設定代碼：");
+        if(!code) return;
+        try {
+            const data = JSON.parse(decodeURIComponent(escape(atob(code))));
+            categories = data.categories;
+            itemMap = data.itemMap;
+            safetyStocks = data.safetyStocks || {};
+            saveData(); location.reload();
+        } catch(e) { alert("代碼無效"); }
+    }
+
+    renderCountingView();
+</script>
 </body>
 </html>
