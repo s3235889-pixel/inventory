@@ -3,29 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>分類盤點管理系統</title>
+  <title>雲端盤點管理系統</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-100 p-4 md:p-6 min-h-screen">
   <div class="max-w-4xl mx-auto space-y-6">
     <h1 class="text-2xl font-bold text-gray-800">雲端盤點管理系統</h1>
 
-    <!-- 區塊 1：品項目錄管理（新增品項到選單） -->
+    <!-- 區塊 1：品項目錄管理（建立品項與類別） -->
     <details class="bg-white rounded-xl shadow-md p-4 border border-blue-100">
       <summary class="font-semibold text-blue-600 cursor-pointer flex justify-between items-center">
-        <span>➕ 建立新品項 / 分類（設定選單清單）</span>
+        <span>➕ 手動新增品項 / 分類至雲端目錄</span>
         <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">點擊展開</span>
       </summary>
       <div class="mt-4 pt-3 border-t grid grid-cols-1 md:grid-cols-3 gap-3">
-        <select id="new-cat-select" class="border p-2 rounded w-full">
-          <option value="拉麵類">拉麵類</option>
-          <option value="甜品類">甜品類</option>
-          <option value="包裝類">包裝類</option>
-          <option value="custom">+ 自訂新類別...</option>
-        </select>
-        <input type="text" id="custom-cat-input" placeholder="輸入新類別名稱" class="border p-2 rounded w-full hidden">
-        <input type="text" id="new-item-name" placeholder="品項名稱 (如: 博多拉麵)" class="border p-2 rounded w-full">
-        <button onclick="addCatalogItem()" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 font-medium">加入選單目錄</button>
+        <input type="text" id="new-cat-input" placeholder="類別名稱 (如: 湯頭類、麵條類)" class="border p-2 rounded w-full">
+        <input type="text" id="new-item-name" placeholder="品項名稱 (如: 豚骨高湯)" class="border p-2 rounded w-full">
+        <button onclick="addCatalogItem()" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 font-medium">新增至試算表目錄</button>
       </div>
     </details>
 
@@ -35,22 +29,19 @@
       <input type="hidden" id="item-id">
       
       <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <!-- 類別選擇 -->
+        <!-- 類別篩選下拉選單 -->
         <div>
-          <label class="block text-xs font-bold text-gray-500 mb-1">類別</label>
+          <label class="block text-xs font-bold text-gray-500 mb-1">依類別篩選</label>
           <select id="item-cat" onchange="filterItemDropdown()" class="border p-2 rounded w-full bg-gray-50">
             <option value="">全部類別</option>
-            <option value="拉麵類">拉麵類</option>
-            <option value="甜品類">甜品類</option>
-            <option value="包裝類">包裝類</option>
           </select>
         </div>
 
         <!-- 品項下拉選單 -->
         <div>
-          <label class="block text-xs font-bold text-gray-500 mb-1">品項名稱</label>
+          <label class="block text-xs font-bold text-gray-500 mb-1">選擇品項</label>
           <select id="item-name-select" class="border p-2 rounded w-full">
-            <option value="">-- 請選擇品項 --</option>
+            <option value="">載入目錄中...</option>
           </select>
         </div>
 
@@ -60,7 +51,7 @@
           <input type="number" id="item-qty" placeholder="數量" class="border p-2 rounded w-full">
         </div>
 
-        <!-- 按鈕 -->
+        <!-- 操作按鈕 -->
         <div class="flex items-end gap-2">
           <button onclick="saveItem()" id="btn-save" class="bg-blue-600 text-white px-4 py-2 rounded w-full hover:bg-blue-700 font-medium h-[42px]">新增盤點</button>
           <button onclick="resetForm()" id="btn-cancel" class="bg-gray-400 text-white px-3 py-2 rounded hidden hover:bg-gray-500 h-[42px]">取消</button>
@@ -73,7 +64,7 @@
       <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
         <div class="flex items-center gap-3">
           <h2 class="text-lg font-semibold text-gray-700">目前盤點清單</h2>
-          <!-- 篩選器 -->
+          <!-- 盤點列表篩選器 -->
           <select id="filter-cat" onchange="renderTable()" class="border text-sm p-1.5 rounded bg-gray-50">
             <option value="">顯示全部類別</option>
           </select>
@@ -101,23 +92,24 @@
   </div>
 
   <script>
-    const API_URL = 'https://script.google.com/macros/s/AKfycbxEofVTSpHBO-qfnQy1EEnQYzhgrn3-LyOv2obeT1Bx-iFjZZLCwu2beWwhh8qQoRD6VA/exec';
+    const API_URL = 'https://script.google.com/macros/s/AKfycbz-MoC5G8gSwk_3qjehTfwCtOrsYiCAAZrwHK571xkz8S6KoiD604wScV4Gkt0QbCHM/exec';
 
     let rawCatalog = [];
     let inventoryData = [];
 
-    // 初始化載入
+    // 初始化：載入試算表資料
     async function loadAllData() {
       await fetchCatalog();
       await fetchData();
     }
 
-    // 1. 取得品項目錄
+    // 1. 從試算表 items 頁籤抓取目前的品目資料
     async function fetchCatalog() {
       try {
         const res = await fetch(`${API_URL}?action=getCatalog`);
         const result = await res.json();
         rawCatalog = result.data || [];
+        
         updateCategoryOptions();
         filterItemDropdown();
       } catch (err) {
@@ -125,7 +117,7 @@
       }
     }
 
-    // 2. 取得盤點紀錄
+    // 2. 從試算表 inventory 頁籤抓取目前的盤點紀錄
     async function fetchData() {
       const tbody = document.getElementById('table-body');
       tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-gray-400">載入最新盤點中...</td></tr>';
@@ -139,31 +131,30 @@
       }
     }
 
-    // 更新類別選項（動態收集目錄中的所有類別）
+    // 動態將試算表中「實際存在」的類別填入下拉選單
     function updateCategoryOptions() {
-      const categories = Array.from(new Set(rawCatalog.map(item => item.category)));
-      const baseCategories = ['拉麵類', '甜品類', '包裝類'];
-      const allCat = Array.from(new Set([...baseCategories, ...categories]));
+      // 自動收集 items 資料表裡出現過的所有類別名稱
+      const categories = Array.from(new Set(rawCatalog.map(item => item.category).filter(Boolean)));
 
       const catSelect = document.getElementById('item-cat');
-      const newCatSelect = document.getElementById('new-cat-select');
       const filterCat = document.getElementById('filter-cat');
+
+      if (categories.length === 0) {
+        catSelect.innerHTML = '<option value="">(無類別資料)</option>';
+        filterCat.innerHTML = '<option value="">顯示全部類別</option>';
+        return;
+      }
 
       const buildOptions = (firstText) => `
         <option value="">${firstText}</option>
-        ${allCat.map(c => `<option value="${c}">${c}</option>`).join('')}
+        ${categories.map(c => `<option value="${c}">${c}</option>`).join('')}
       `;
 
       catSelect.innerHTML = buildOptions('全部類別');
       filterCat.innerHTML = buildOptions('顯示全部類別');
-
-      newCatSelect.innerHTML = `
-        ${allCat.map(c => `<option value="${c}">${c}</option>`).join('')}
-        <option value="custom">+ 自訂新類別...</option>
-      `;
     }
 
-    // 依選擇的類別，動態過濾品項下拉選單
+    // 依選取的類別動態切換「品項選單」
     function filterItemDropdown() {
       const selectedCat = document.getElementById('item-cat').value;
       const itemSelect = document.getElementById('item-name-select');
@@ -172,31 +163,22 @@
         ? rawCatalog.filter(i => i.category === selectedCat)
         : rawCatalog;
 
+      if (filtered.length === 0) {
+        itemSelect.innerHTML = '<option value="">-- 目前無品項，請先新增 --</option>';
+        return;
+      }
+
       itemSelect.innerHTML = '<option value="">-- 請選擇品項 --</option>' +
-        filtered.map(i => `<option value="${i.itemName}" data-cat="${i.category}">${i.itemName} (${i.category})</option>`).join('');
+        filtered.map(i => `<option value="${i.itemName}" data-cat="${i.category}">${i.itemName} (${i.category || '未分類'})</option>`).join('');
     }
 
-    // 當選擇「自訂新類別」時開啟輸入框
-    document.getElementById('new-cat-select').addEventListener('change', function() {
-      const customInput = document.getElementById('custom-cat-input');
-      if (this.value === 'custom') {
-        customInput.classList.remove('hidden');
-      } else {
-        customInput.classList.add('hidden');
-      }
-    });
-
-    // 新增品項至目錄
+    // 手動新增品項與類別到雲端試算表 (items 頁籤)
     async function addCatalogItem() {
-      const catSelect = document.getElementById('new-cat-select');
-      let category = catSelect.value;
-      if (category === 'custom') {
-        category = document.getElementById('custom-cat-input').value.trim();
-      }
+      const category = document.getElementById('new-cat-input').value.trim();
       const itemName = document.getElementById('new-item-name').value.trim();
 
       if (!category || !itemName) {
-        alert('請填寫完整的類別與品項名稱！');
+        alert('請填寫類別與品項名稱！');
         return;
       }
 
@@ -206,22 +188,20 @@
         body: JSON.stringify({ action: 'addCatalog', category, itemName })
       });
 
+      document.getElementById('new-cat-input').value = '';
       document.getElementById('new-item-name').value = '';
-      document.getElementById('custom-cat-input').value = '';
-      catSelect.value = '拉麵類';
-      document.getElementById('custom-cat-input').classList.add('hidden');
 
       await fetchCatalog();
-      alert('成功加入品項目錄！');
+      alert(`已成功將「${category} - ${itemName}」寫入雲端目錄！`);
     }
 
-    // 儲存盤點紀錄（新增/修改）
+    // 儲存盤點紀錄
     async function saveItem() {
       const id = document.getElementById('item-id').value;
       const itemSelect = document.getElementById('item-name-select');
       const itemName = itemSelect.value;
       const selectedOption = itemSelect.options[itemSelect.selectedIndex];
-      const category = selectedOption ? selectedOption.getAttribute('data-cat') || document.getElementById('item-cat').value : '';
+      const category = selectedOption ? selectedOption.getAttribute('data-cat') : '';
       const quantity = document.getElementById('item-qty').value;
 
       if (!itemName || quantity === '') {
@@ -242,7 +222,7 @@
       fetchData();
     }
 
-    // 渲染表格
+    // 渲染盤點資料表格
     function renderTable() {
       const tbody = document.getElementById('table-body');
       const filterCat = document.getElementById('filter-cat').value;
@@ -311,7 +291,7 @@
       document.getElementById('btn-cancel').classList.add('hidden');
     }
 
-    // 啟動載入
+    // 開啟網頁即執行載入
     loadAllData();
   </script>
 </body>
