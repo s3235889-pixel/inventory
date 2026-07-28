@@ -40,7 +40,7 @@
 
         .settings-section { display: none; }
         .settings-section.active { display: block; }
-        .config-card { background: #ecf0f1; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 10px; }
+        .config-card { background: #ecf0f1; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
         .config-card button { padding: 10px; font-weight: bold; border-radius: 6px; border: 1px solid #bdc3c7; background: white; cursor: pointer; }
 
         #resultArea { margin-top: 25px; background: #2c3e50; color: #fff; padding: 15px; border-radius: 8px; display: none; }
@@ -92,30 +92,67 @@
         <div class="config-card">
             <button onclick="exportSettings()">📥 複製設定代碼</button>
             <button onclick="triggerImport()">📤 貼上設定代碼</button>
+            <button onclick="restoreDefaults()" style="background: #e74c3c; color: white; border: none;">🔄 還原預設資料</button>
         </div>
         <div id="settingList" class="item-grid active"></div>
     </div>
 </div>
 
 <script>
-    // 已寫死包含底數 (safetyStocks) 的全新預設設定代碼
-    const RAW_CODE = "eyJjYXRlZ29yaWVzIjpbIuacquWIhumhniIsIuWMheadkCIsIuWNsOWIt+WTgSIsIueUnOWTgemjn+adkCIsIuWGsOWTgemjn+adkCIsIumvm+mtmueHkumjn+adkCIsIuaLiem6temjn+adkCIsIua4hea9lOeUqOWTgSJdLCJpdGVtTWFwIjp7IlMiOiLnlJzlk4Hpo5/mnZAiLCJLIjoi55Sc5ZOB6aOf5p2QIiwiTSI6IueUnOWTgemjn+adkCIsIkwiOiLnlJzlk4Hpo5/mnZAiLCLns5bmsLQiOiLnlJzlk4Hpo5/mnZAiLCLosYboirEiOiLnlJzlk4Hpo5/mnZAiLCLntIXojLYiOiLnlJzlk4Hpo5/mnZAiLCLntIXosYYiOiLnlJzlk4Hpo5/mnZAiLCLolo/ku4HmlpkiOiLnlJzlk4Hpo5/mnZAiLCLolo/ku4Hmua8iOiLnlJzlk4Hpo5/mnZAiLCLntqDosYYiOiLlhrDlk4Hpo5/mnZAiLCLoirHosYYiOiLlhrDlk4Hpo5/mnZAiLCLoirHnlJ8iOiLnlJzlk4Hpo5/mnZAiLCLoipLlh40iOiLlhrDlk4Hpo5/mnZAiLCLlt6flh40iOiLlhrDlk4Hpo5/mnZAiLCLojpPlh40iOiLlhrDlk4Hpo5/mnZAiLCLmhJvnjokiOiLnlJzlk4Hpo5/mnZAiLCLniafloLTniZvlpbYiOiLlhrDlk4Hpo5/mnZAiLCLnoazoirHnlJ8iOiLlhrDlk4Hpo5/mnZAiLCLmppvmnpwiOiLpr5vprZrnh5Lpo5/mnZAiLCLpq5jmua8iOiLmi4npurXpo5/mnZAiLCLmi4npurUiOiLmi4npurXpo5/mnZAiLCLom4siOiLmi4npurXpo5/mnZAiLCLnrY3kub4iOiLmi4npurXpo5/mnZAiLCLolKUiOiLmi4npurXpo5/mnZAiLCLokpwiOiLmi4npurXpo5/mnZAiLCLlj4nnh5IiOiLmi4npurXpo5/mnZAiLCLpurvovqPphqwiOiLmi4npurXpo5/mnZAiLCLojYnojpPphqwiOiLlhrDlk4Hpo5/mnZAiLCLlh7rllq7ntJkiOiLljbDliLflk4EiLCLlh7rllq7osrzntJkiOiLljbDliLflk4EiLCLnhorospPlh7rllq7ntJkiOiLljbDliLflk4EiLCLprZrnmq4iOiLpr5vprZrnh5Lpo5/mnZAiLCLnmb3ljaEiOiLpr5vprZrnh5Lpo5/mnZAiLCJN5Y2hIjoi6a+b6a2a54eS6aOf5p2QIiwi6buR5bKpIjoi6a+b6a2a54eS6aOf5p2QIiwi6JST6I6TIjoi6a+b6a2a54eS6aOf5p2QIiwi6a2a55So6IqL5rOlIjoi6a+b6a2a54eS6aOf5p2QIiwi576O5LmD5ruLIjoi6a+b6a2a54eS6aOf5p2QIiwi6LGa5rGBIjoi5ouJ6bq16aOf5p2QIiwi5pel5byP6Yas5rK5Ijoi5ouJ6bq16aOf5p2QIiwi5ZGz5ZmMIjoi5ouJ6bq16aOf5p2QIiwi5rOh6I+cIjoi5ouJ6bq16aOf5p2QIiwi546J57GzIjoi5ouJ6bq16aOf5p2QIiwi54WJ5LmzIjoi5Yaw5ZOB6aOf5p2QIiwi54Sm57OWIjoi5Yaw5ZOB6aOf5p2QIiwi5ben6YasIjoi5Yaw5ZOB6aOf5p2QIiwi5p6c57OWIjoi55Sc5ZOB6aOf5p2QIiwi5LuZ6I2J5rGBIjoi55Sc5ZOB6aOf5p2QIiwi6Zyc5reH5reL6aSF5p2vIjoi5Yaw5ZOB6aOf5p2QIiwi5ben6YWlIjoi5Yaw5ZOB6aOf5p2QIiwiT3JlbyI6IuWGsOWTgemjn+adkCIsIuibi+aNsiI6IuWGsOWTgemjn+adkCIsIueOieexs+eJhyI6IuWGsOWTgemjn+adkCIsIuaguOahgyI6IuWGsOWTgemjn+adkCIsIuiRoeiQhOS5viI6IuWGsOWTgemjn+adkCIsIuWltueQgyI6IueUnOWTgemjn+adkCIsIuePjeePoCI6IueUnOWTgemjn+adkCIsIuWQieWIqea5r+WMmSI6IuWMheadkCIsIuWGsOa5r+WMmSI6IuWMheadkCIsIuefree0sCI6IuWMheadkCIsIuefreeylyI6IuWMheadkCIsIumVt+e0sCAvIOmVt+eylyI6IuWMheadkCIsIuWfuuW6leeyiSI6IuWGsOWTgemjn+adkCIsIuaKueiMtueyiSI6IuWGsOWTgemjn+adkCIsIue2oOiMtuiRiSI6IueUnOWTgemjn+adkCIsIjUyMCDnopciOiLljIXmnZAiLCI1MjAg6JOLIjoi5YyF5p2QIiwiNzUwIOeilyI6IuWMheadkCIsIjc1MCDok4siOiLljIXmnZAiLCLmi4npurXnopciOiLljIXmnZAiLCLmi4npurXok4siOiLljIXmnZAiLCLpu57lv4Pmna8iOiLljIXmnZAiLCLpu57lv4Pok4siOiLljIXmnZAiLCLogZbku6Pmna8iOiLljIXmnZAiLCIzNjAg5p2vIjoi5YyF5p2QIiwiNTAwIOadryI6IuWMheadkCIsIjUwMCDnmb3mna8iOiLljIXmnZAiLCI3MDAg5p2vIjoi5YyF5p2QIiwiNzAwIOeZveadryI6IuWMheadkCIsIjMyMCDmna8iOiLljIXmnZAiLCI3MDAg55m95p2vIjoi5YyF5p2QIiwi5Ye45p2v6JOLIjoi5YyF5p2QIiwi54ax5p2v5aWXIjoi5YyF5p2QIiwi6buR5p2v6JOLIjoi5YyF5p2QIiwi6YCP5piO54ax5p2v6JOLIjoi5YyF5p2QIiwi6buD6KKLIjoi5YyF5p2QIiwiMSDmna/ooosiOiLljIXmnZAiLCLmiZPmtJ7ooosiOiLljIXmnZAiLCIxIOaWpOiiiyI6IuWMheadkCIsIjIg5pak6KKLIjoi5YyF5p2QIiwiMyDmlqTooosiOiLljIXmnZAiLCI1IOaWpOiiiyI6IuWMheadkCIsIjIg5p2v5p2/Ijoi5YyF5p2QIiwiNCDmna/mnb8iOiLljIXmnZAiLCI2IOadr+advyI6IuWMheadkCIsIjEyIOadr+advyI6IuWMheadkCIsIumtmuiyvOe0mSI6IuWMheadkCIsIumtmue0meiiiyI6IuWMheadkCIsIuWSluWVoeixhiI6IueUnOWTgemjn+adkCIsIuW7muaIv+e0meW3viI6Iua4hea9lOeUqOWTgSIsIuWwj+aKvSI6Iua4hea9lOeUqOWTgSIsIuWkp+aKvSI6Iua4hea9lOeUqOWTgSIsIua0l+eil+eyviI6Iua4hea9lOeUqOWTgSIsIuWwj+iYh+aJkyI6Iua4hea9lOeUqOWTgSIsIuWcsOadv+a4hea9lOWKkSI6Iua4hea9lOeUqOWTgSIsIuS/nemuruiGnCI6IuWMheadkCIsIuadr+iGnCI6IuWMheadkCIsIua1t+e2v+iPnOeTnOW4gyI6Iua4hea9lOeUqOWTgSIsIueyl+m5vSI6Iua4hea9lOeUqOWTgSIsIueZveembqiI6IuWGsOWTgemjn+adkCIsIuWltumbqiI6IuWGsOWTgemjn+adkCIsIuahkeakuemGrCI6IuWGsOWTgemjn+adkCIsIuaquOaqrOaxgSI6IueUnOWTgemjn+adkCIsIuiYi+aenCI6Iumvm+mtmueHkumjn+adkCIsIueZveeOiSI6Iumvm+mtmueHkumjn+adkCIsIui1t+WPuCI6Iumvm+mtmueHkumjn+adkCIsIua0i+iUpeiCiSI6IuaLiem6temjn+adkCIsIuiKi+eVquWckyI6IueUnOWTgemjn+adkCIsIuW4g+S4gSI6IuWGsOWTgemjn+adkCIsIuS4gOWPo+mFpSI6IuacquWIhumhniIsIumcnOa3h+a3i+WGsOainSI6IuacquWIhumhniIsIuett+WtkCI6IuWMheadkCIsIueTpuaWr+e9kCI6IuacquWIhumhniIsIuWeg+WcvuiiiyI6Iua4hea9lOeUqOWTgSIsIua8gueZveawtCI6Iua4hea9lOeUqOWTgSIsIuWkp+e9kOmGrOayuSI6IuaLiem6temjn+adkCIsIuWkluW4tuiPnOWWriI6IuWNsOWIt+WTgSIsIuacneWkqei+o+mGrCI6IuaLiem6temjn+adkCIsIumfk+W8j+i+o+mGrCI6IuaLiem6temjn+adkCIsIumAmuWlhyI6Iua4hea9lOeUqOWTgSIsIum6u+ayuSI6IuaLiem6temjn+adkCIsIuiSnOmFpSI6IuaLiem6temjn+adkCJ9LCJzYWZldHlTdG9ja3MiOnsi5LiA5Y+j6YWlIjo0LCI1MjAg56KXIjoyMCwiNTIwIOiTiyI6MjAsIjEg5pak6KKLIjoxMCwiMSDmna/ooosiOjEwLCIxMiDmna/mnb8iOjEsIjIg5pak6KKLIjo4fX0=";
+    // 使用您提供完全正確的原始 Base64 載入碼
+    const RAW_CODE = "eyJjYXRlZ29yaWVzIjpbIuacquWIhumhniIsIuWMheadkCIsIuWNsOWIt+WTgSIsIueUnOWTgemjn+adkCIsIuWGsOWTgemjn+adkCIsIumvm+mtmueHkumjn+adkCIsIuaLiem6temjn+adkCIsIua4hea9lOeUqOWTgSJdLCJpdGVtTWFwIjp7IlMiOiLnlJzlk4Hpo5/mnZAiLCJLIjoi55Sc5ZOB6aOf5p2QIiwiTSI6IueUnOWTgemjn+adkCIsIkwiOiLnlJzlk4Hpo5/mnZAiLCLns5bmsLQiOiLnlJzlk4Hpo5/mnZAiLCLosYboirEiOiLnlJzlk4Hpo5/mnZAiLCLntIXojLYiOiLnlJzlk4Hpo5/mnZAiLCLntIXosYYiOiLnlJzlk4Hpo5/mnZAiLCLolo/ku4HmlpkiOiLnlJzlk4Hpo5/mnZAiLCLolo/ku4Hmua8iOiLnlJzlk4Hpo5/mnZAiLCLntqDosYYiOiLlhrDlk4Hpo5/mnZAiLCLoirHosYYiOiLlhrDlk4Hpo5/mnZAiLCLoirHnlJ8iOiLnlJzlk4Hpo5/mnZAiLCLoipLlh40iOiLlhrDlk4Hpo5/mnZAiLCLlt6flh40iOiLlhrDlk4Hpo5/mnZAiLCLojpPlh40iOiLlhrDlk4Hpo5/mnZAiLCLmhJvnjokiOiLnlJzlk4Hpo5/mnZAiLCLniafloLTniZvlpbYiOiLlhrDlk4Hpo5/mnZAiLCLnoazoirHnlJ8iOiLlhrDlk4Hpo5/mnZAiLCLmppvmnpwiOiLpr5vprZrnh5Lpo5/mnZAiLCLpq5jmua8iOiLmi4npurXpo5/mnZAiLCLmi4npurUiOiLmi4npurXpo5/mnZAiLCLom4siOiLmi4npurXpo5/mnZAiLCLnrY3kub4iOiLmi4npurXpo5/mnZAiLCLolKUiOiLmi4npurXpo5/mnZAiLCLokpwiOiLmi4npurXpo5/mnZAiLCLlj4nnh5IiOiLmi4npurXpo5/mnZAiLCLpurvovqPphqwiOiLmi4npurXpo5/mnZAiLCLojYnojpPphqwiOiLlhrDlk4Hpo5/mnZAiLCLlh7rllq7ntJkiOiLljbDliLflk4EiLCLlh7rllq7osrzntJkiOiLljbDliLflk4EiLCLnhorospPlh7rllq7ntJkiOiLljbDliLflk4EiLCLprZrnmq4iOiLpr5vprZrnh5Lpo5/mnZAiLCLnmb3ljaEiOiLpr5vprZrnh5Lpo5/mnZAiLCJN5Y2hIjoi6a+b6a2a54eS6aOf5p2QIiwi6buR5bKpIjoi6a+b6a2a54eS6aOf5p2QIiwi6JST6I6TIjoi6a+b6a2a54eS6aOf5p2QIiwi6a2a55So6IqL5rOlIjoi6a+b6a2a54eS6aOf5p2QIiwi576O5LmD5ruLIjoi6a+b6a2a54eS6aOf5p2QIiwi6LGa5rGBIjoi5ouJ6bq16aOf5p2QIiwi5pel5byP6Yas5rK5Ijoi5ouJ6bq16aOf5p2QIiwi5ZGz5ZmMIjoi5ouJ6bq16aOf5p2QIiwi5rOh6I+cIjoi5ouJ6bq16aOf5p2QIiwi546J57GzIjoi5ouJ6bq16aOf5p2QIiwi54WJ5LmzIjoi5Yaw5ZOB6aOf5p2QIiwi54Sm57OWIjoi5Yaw5ZOB6aOf5p2QIiwi5ben6YasIjoi5Yaw5ZOB6aOf5p2QIiwi5p6c57OWIjoi55Sc5ZOB6aOf5p2QIiwi5LuZ6I2J5rGBIjoi55Sc5ZOB6aOf5p2QIiwi6Zyc5reH5reL6aSF5p2vIjoi5Yaw5ZOB6aOf5p2QIiwi5ben6YWlIjoi5Yaw5ZOB6aOf5p2QIiwiT3JlbyI6IuWGsOWTgemjn+adkCIsIuibi+aNsiI6IuWGsOWTgemjn+adkCIsIueOieexs+eJhyI6IuWGsOWTgemjn+adkCIsIuaguOahgyI6IuWGsOWTgemjn+adkCIsIuiRoeiQhOS5viI6IuWGsOWTgemjn+adkCIsIuWltueQgyI6IueUnOWTgemjn+adkCIsIuePjeePoCI6IueUnOWTgemjn+adkCIsIuWQieWIqea5r+WMmSI6IuWMheadkCIsIuWGsOa5r+WMmSI6IuWMheadkCIsIuefree0sCI6IuWMheadkCIsIuefreeylyI6IuWMheadkCIsIumVt+e0sCAvIOmVt+eylyI6IuWMheadkCIsIuWfuuW6leeyiSI6IuWGsOWTgemjn+adkCIsIuaKueiMtueyiSI6IuWGsOWTgemjn+adkCIsIue2oOiMtuiRiSI6IueUnOWTgemjn+adkCIsIjUyMCDnopciOiLljIXmnZAiLCI1MjAg6JOLIjoi5YyF5p2QIiwiNzUwIOeilyI6IuWMheadkCIsIjc1MCDok4siOiLljIXmnZAiLCLmi4npurXnopciOiLljIXmnZAiLCLmi4npurXok4siOiLljIXmnZAiLCLpu57lv4Pmna8iOiLljIXmnZAiLCLpu57lv4Pok4siOiLljIXmnZAiLCLogZbku6Pmna8iOiLljIXmnZAiLCIzNjAg5p2vIjoi5YyF5p2QIiwiNTAwIOadryI6IuWMheadkCIsIjUwMCDnmb3mna8iOiLljIXmnZAiLCI3MDAg5p2vIjoi5YyF5p2QIiwiNzAwIOeZveadryI6IuWMheadkCIsIjMyMCDmna8iOiLljIXmnZAiLCIzNjAg55m95p2vIjoi5YyF5p2QIiwi5Ye45p2v6JOLIjoi5YyF5p2QIiwi54ax5p2v5aWXIjoi5YyF5p2QIiwi6buR5p2v6JOLIjoi5YyF5p2QIiwi6YCP5piO54ax5p2v6JOLIjoi5YyF5p2QIiwi6buD6KKLIjoi5YyF5p2QIiwiMSDmna/ooosiOiLljIXmnZAiLCLmiZPmtJ7ooosiOiLljIXmnZAiLCIxIOaWpOiiiyI6IuWMheadkCIsIjIg5pak6KKLIjoi5YyF5p2QIiwiMyDmlqTooosiOiLljIXmnZAiLCI1IOaWpOiiiyI6IuWMheadkCIsIjIg5p2v5p2/Ijoi5YyF5p2QIiwiNCDmna/mnb8iOiLljIXmnZAiLCI6IOadr+advyI6IuWMheadkCIsIjEyIOadr+advyI6IuWMheadkCIsIumtmuiyvOe0mSI6IuWMheadkCIsIumtmue0meiiiyI6IuWMheadkCIsIuWSluWVoeixhiI6IueUnOWTgemjn+adkCIsIuW7muaIv+e0meW3viI6Iua4hea9lOeUqOWTgSIsIuWwj+aKvSI6Iua4hea9lOeUqOWTgSIsIuWkp+aKvSI6Iua4hea9lOeUqOWTgSIsIua0l+eil+eyviI6Iua4hea9lOeUqOWTgSIsIuWwj+iYh+aJkyI6Iua4hea9lOeUqOWTgSIsIuWcsOadv+a4hea9lOWKkSI6Iua4hea9lOeUqOWTgSIsIuS/nemuruiGnCI6IuWMheadkCIsIuadr+iGnCI6IuWMheadkCIsIua1t+e2v+iPnOeTnOW4gyI6Iua4hea9lOeUqOWTgSIsIueyl+m5vSI6Iua4hea9lOeUqOWTgSIsIueZveeOiSI6IuWGsOWTgemjn+adkCIsIuWltumbqiI6IuWGsOWTgemjn+adkCIsIuahkeakuemGrCI6IuWGsOWTgemjn+adkCIsIuaquOaqrOaxgSI6IueUnOWTgemjn+adkCIsIuiYi+aenCI6Iumvm+mtmueHkumjn+adkCIsIueZveeOiSI6Iumvm+mtmueHkumjn+adkCIsIui1t+WPuCI6Iumvm+mtmueHkumjn+adkCIsIua0i+iUpeiCiSI6IuaLiem6temjn+adkCIsIuiKi+eVquWckyI6IueUnOWTgemjn+adkCIsIuW4g+S4gSI6IuWGsOWTgemjn+adkCIsIuS4gOWPo+mFpSI6IuanquWIhumhniIsIumcnOa3h+a3i+WGsOainSI6IuanquWIhumhniIsIuett+WtkCI6IuWMheadkCIsIueTpuaWr+e9kCI6IuanquWIhumhniIsIuWeg+WcvuiiiyI6Iua4hea9lOeUqOWTgSIsIua8gueZveawtCI6Iua4hea9lOeUqOWTgSIsIuWkp+e9kOmGrOayuSI6IuaLiem6temjn+adkCIsIuWkluW4tuiPnOWWriI6IuWNsOWIt+WTgSIsIuacneWkqei+o+mGrCI6IuaLiem6temjn+divOacneWkqei+o+mGrCI6IuaLiem6temjn+adkCIsIumfk+W8j+i+o+mGrCI6IuaLiem6temjn+adkCIsIumAmacoI6Iua4hea9lOeUqOWTgSIsIum6u+ayuSI6IuaLiem6temjn+adkCIsIuiSnOmFpSI6IuaLiem6temjn+adkCJ9fQ==";
 
     function getInitialData() {
         try { 
             return JSON.parse(decodeURIComponent(escape(atob(RAW_CODE)))); 
         } catch (e) { 
+            console.error("解碼失敗", e);
             return { categories: ["未分類"], itemMap: {}, safetyStocks: {} }; 
         }
     }
 
     const initialData = getInitialData();
-    let categories = JSON.parse(localStorage.getItem('myCategories')) || initialData.categories;
-    let itemMap = JSON.parse(localStorage.getItem('myItemMap')) || initialData.itemMap;
-    let safetyStocks = JSON.parse(localStorage.getItem('mySafetyStocks')) || initialData.safetyStocks || {}; 
+
+    // 嚴格載入函式：若本地紀錄空白或無資料，強制載入RAW_CODE預設值
+    function loadCategories() {
+        try {
+            const saved = localStorage.getItem('myCategories');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            }
+        } catch(e) {}
+        return initialData.categories || ["未分類"];
+    }
+
+    function loadItemMap() {
+        try {
+            const saved = localStorage.getItem('myItemMap');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (typeof parsed === 'object' && parsed !== null && Object.keys(parsed).length > 0) return parsed;
+            }
+        } catch(e) {}
+        return initialData.itemMap || {};
+    }
+
+    function loadSafetyStocks() {
+        try {
+            const saved = localStorage.getItem('mySafetyStocks');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (typeof parsed === 'object' && parsed !== null) return parsed;
+            }
+        } catch(e) {}
+        return initialData.safetyStocks || {};
+    }
+
+    let categories = loadCategories();
+    let itemMap = loadItemMap();
+    let safetyStocks = loadSafetyStocks();
     let currentCounts = {}; 
 
-    // 初始化所有品項的計數
+    // 初始化品項點貨計數
     Object.keys(itemMap).forEach(name => currentCounts[name] = 0);
 
     function saveData() {
@@ -163,7 +200,7 @@
             const btn = document.createElement('button');
             btn.className = `tab-btn ${idx===0?'active':''}`;
             btn.innerText = cat;
-            btn.onclick = (e) => {
+            btn.onclick = () => {
                 document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
                 document.querySelectorAll('.item-grid').forEach(g=>g.classList.remove('active'));
                 btn.classList.add('active');
@@ -277,6 +314,15 @@
             safetyStocks = data.safetyStocks || {};
             saveData(); location.reload();
         } catch(e) { alert("代碼無效"); }
+    }
+
+    function restoreDefaults() {
+        if (confirm("確定要重設並載入原始預設資料嗎？")) {
+            localStorage.removeItem('myCategories');
+            localStorage.removeItem('myItemMap');
+            localStorage.removeItem('mySafetyStocks');
+            location.reload();
+        }
     }
 
     renderCountingView();
