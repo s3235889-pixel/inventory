@@ -13,16 +13,34 @@
       <span class="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2.5 py-1 rounded-full">資料庫: AA 試算表</span>
     </div>
 
-    <!-- 區塊 1：品項目錄管理 -->
+    <!-- 區塊 1：管理分類與品項 -->
     <details class="bg-white rounded-xl shadow-md p-4 border border-blue-100">
       <summary class="font-semibold text-blue-600 cursor-pointer flex justify-between items-center">
-        <span>➕ 新增品項與分類至雲端目錄 (items 頁籤)</span>
+        <span>⚙️ 分類與品項目錄設定 (items 頁籤)</span>
         <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">點擊展開</span>
       </summary>
-      <div class="mt-4 pt-3 border-t grid grid-cols-1 md:grid-cols-3 gap-3">
-        <input type="text" id="new-cat-input" placeholder="類別名稱 (例: 湯頭類、拉麵類)" class="border p-2 rounded w-full">
-        <input type="text" id="new-item-name" placeholder="品項名稱 (例: 博多豚骨拉麵)" class="border p-2 rounded w-full">
-        <button onclick="addCatalogItem()" id="btn-add-cat" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 font-medium">新增至 items 目錄</button>
+      
+      <div class="mt-4 pt-3 border-t space-y-4">
+        <!-- 功能 A：單獨新增分類 -->
+        <div class="bg-gray-50 p-3 rounded-lg border">
+          <label class="block text-xs font-bold text-gray-600 mb-2">Step 1：新增獨立分類</label>
+          <div class="flex gap-2">
+            <input type="text" id="new-single-cat" placeholder="輸入新類別名稱 (例: 拉麵類、甜品類、包裝類)" class="border p-2 rounded w-full">
+            <button onclick="addOnlyCategory()" id="btn-add-cat-only" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 font-medium whitespace-nowrap">建立新分類</button>
+          </div>
+        </div>
+
+        <!-- 功能 B：單獨新增品項 -->
+        <div class="bg-gray-50 p-3 rounded-lg border">
+          <label class="block text-xs font-bold text-gray-600 mb-2">Step 2：選擇分類並建立品項</label>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <select id="catalog-cat-select" class="border p-2 rounded w-full bg-white">
+              <option value="">-- 請先選擇分類 --</option>
+            </select>
+            <input type="text" id="new-item-name" placeholder="輸入品项名稱 (例: 豚骨高湯)" class="border p-2 rounded w-full">
+            <button onclick="addCatalogItem()" id="btn-add-item" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 font-medium">新增品項至目錄</button>
+          </div>
+        </div>
       </div>
     </details>
 
@@ -32,7 +50,7 @@
       <input type="hidden" id="item-id">
       
       <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <!-- 類別篩選下拉選單 -->
+        <!-- 類別篩選 -->
         <div>
           <label class="block text-xs font-bold text-gray-500 mb-1">依類別篩選</label>
           <select id="item-cat" onchange="filterItemDropdown()" class="border p-2 rounded w-full bg-gray-50">
@@ -40,7 +58,7 @@
           </select>
         </div>
 
-        <!-- 品項下拉選單 -->
+        <!-- 品項選單 -->
         <div>
           <label class="block text-xs font-bold text-gray-500 mb-1">選擇品項</label>
           <select id="item-name-select" class="border p-2 rounded w-full">
@@ -54,7 +72,7 @@
           <input type="number" id="item-qty" placeholder="數量" class="border p-2 rounded w-full">
         </div>
 
-        <!-- 操作按鈕 -->
+        <!-- 按鈕 -->
         <div class="flex items-end gap-2">
           <button onclick="saveItem()" id="btn-save" class="bg-blue-600 text-white px-4 py-2 rounded w-full hover:bg-blue-700 font-medium h-[42px]">新增盤點</button>
           <button onclick="resetForm()" id="btn-cancel" class="bg-gray-400 text-white px-3 py-2 rounded hidden hover:bg-gray-500 h-[42px]">取消</button>
@@ -94,7 +112,7 @@
   </div>
 
   <script>
-    const API_URL = 'https://script.google.com/macros/s/AKfycbxdNOnae7snAJskDVzjTDE6dfLpM38TgCpZ509j79orMOMkC-KRCI0UQfKNQieR8mjUiw/exec';
+    const API_URL = 'https://script.google.com/macros/s/AKfycbz-MoC5G8gSwk_3qjehTfwCtOrsYiCAAZrwHK571xkz8S6KoiD604wScV4Gkt0QbCHM/exec';
 
     let rawCatalog = [];
     let inventoryData = [];
@@ -104,16 +122,16 @@
       await fetchData();
     }
 
-    // 1. 讀取 items 頁籤
+    // 1. 讀取 items 頁籤 (加入抗快取機制)
     async function fetchCatalog() {
       const itemSelect = document.getElementById('item-name-select');
       try {
-        const res = await fetch(`${API_URL}?action=getCatalog`);
+        const res = await fetch(`${API_URL}?action=getCatalog&t=${Date.now()}`);
         const result = await res.json();
         
         if (result.status === 'error') {
           console.error('後端錯誤：', result.message);
-          itemSelect.innerHTML = '<option value="">-- 後端連線異常 --</option>';
+          itemSelect.innerHTML = '<option value="">-- 後端權限異常 --</option>';
           return;
         }
 
@@ -131,7 +149,7 @@
       const tbody = document.getElementById('table-body');
       tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-gray-400">載入最新盤點中...</td></tr>';
       try {
-        const res = await fetch(API_URL);
+        const res = await fetch(`${API_URL}?t=${Date.now()}`);
         const result = await res.json();
         inventoryData = result.data || [];
         renderTable();
@@ -140,14 +158,17 @@
       }
     }
 
+    // 更新所有分類下拉選單
     function updateCategoryOptions() {
       const categories = Array.from(new Set(rawCatalog.map(item => item.category).filter(Boolean)));
 
       const catSelect = document.getElementById('item-cat');
+      const catalogCatSelect = document.getElementById('catalog-cat-select');
       const filterCat = document.getElementById('filter-cat');
 
       if (categories.length === 0) {
-        catSelect.innerHTML = '<option value="">(目錄尚無資料)</option>';
+        catSelect.innerHTML = '<option value="">(無類別，請先建立)</option>';
+        catalogCatSelect.innerHTML = '<option value="">-- 請先建立分類 --</option>';
         filterCat.innerHTML = '<option value="">顯示全部類別</option>';
         return;
       }
@@ -159,18 +180,23 @@
 
       catSelect.innerHTML = buildOptions('全部類別');
       filterCat.innerHTML = buildOptions('顯示全部類別');
+      catalogCatSelect.innerHTML = buildOptions('-- 請選擇分類 --');
     }
 
+    // 切換品項選單
     function filterItemDropdown() {
       const selectedCat = document.getElementById('item-cat').value;
       const itemSelect = document.getElementById('item-name-select');
 
+      // 排除掉僅有分類名稱但沒有品項名稱的資料
+      const validItems = rawCatalog.filter(i => i.itemName);
+
       const filtered = selectedCat 
-        ? rawCatalog.filter(i => i.category === selectedCat)
-        : rawCatalog;
+        ? validItems.filter(i => i.category === selectedCat)
+        : validItems;
 
       if (filtered.length === 0) {
-        itemSelect.innerHTML = '<option value="">-- 目前尚無品項，請先新增 --</option>';
+        itemSelect.innerHTML = '<option value="">-- 目前無品項，請先新增 --</option>';
         return;
       }
 
@@ -178,14 +204,45 @@
         filtered.map(i => `<option value="${i.itemName}" data-cat="${i.category}">${i.itemName} (${i.category || '未分類'})</option>`).join('');
     }
 
-    // 新增品項至 items 目錄
+    // 【新增功能】單獨建立新分類
+    async function addOnlyCategory() {
+      const category = document.getElementById('new-single-cat').value.trim();
+      const btn = document.getElementById('btn-add-cat-only');
+
+      if (!category) {
+        alert('請輸入要建立的分類名稱！');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerText = '建立中...';
+
+      try {
+        await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'addCategory', category })
+        });
+
+        document.getElementById('new-single-cat').value = '';
+        await fetchCatalog();
+        alert(`已成功建立分類：「${category}」！`);
+      } catch (e) {
+        alert('建立失敗，請檢查連線。');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '建立新分類';
+      }
+    }
+
+    // 單獨建立品項
     async function addCatalogItem() {
-      const category = document.getElementById('new-cat-input').value.trim();
+      const category = document.getElementById('catalog-cat-select').value;
       const itemName = document.getElementById('new-item-name').value.trim();
-      const btn = document.getElementById('btn-add-cat');
+      const btn = document.getElementById('btn-add-item');
 
       if (!category || !itemName) {
-        alert('請填寫類別與品項名稱！');
+        alert('請先選擇分類並輸入品項名稱！');
         return;
       }
 
@@ -199,16 +256,14 @@
           body: JSON.stringify({ action: 'addCatalog', category, itemName })
         });
 
-        document.getElementById('new-cat-input').value = '';
         document.getElementById('new-item-name').value = '';
-
         await fetchCatalog();
-        alert(`已成功將「${category} - ${itemName}」寫入 items 目錄！`);
+        alert(`已成功將品項「${itemName}」加入「${category}」分類！`);
       } catch (e) {
         alert('新增失敗，請確認網路連線。');
       } finally {
         btn.disabled = false;
-        btn.innerText = '新增至 items 目錄';
+        btn.innerText = '新增品項至目錄';
       }
     }
 
