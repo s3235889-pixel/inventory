@@ -3,11 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>雲端盤點管理系統 (AA)</title>
+  <title>雲端盤點管理系統 (AA DataGrid)</title>
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tabulator DataGrid CSS & JS -->
+  <link href="https://unpkg.com/tabulator-tables@5.5.2/dist/css/tabulator_tailwindcss.min.css" rel="stylesheet">
+  <script type="text/javascript" src="https://unpkg.com/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
 </head>
 <body class="bg-slate-100 p-4 md:p-6 min-h-screen">
-  <div class="max-w-4xl mx-auto space-y-6">
+  <div class="max-w-5xl mx-auto space-y-6">
     <div class="flex justify-between items-center">
       <h1 class="text-2xl font-bold text-gray-800">雲端盤點管理系統</h1>
       <span class="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2.5 py-1 rounded-full">資料庫: AA 試算表</span>
@@ -80,34 +84,19 @@
       </div>
     </div>
 
-    <!-- 區塊 3：簡化版盤點清單 -->
-    <div class="bg-white p-6 rounded-xl shadow-md">
-      <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
-        <div class="flex items-center gap-3">
-          <h2 class="text-lg font-semibold text-gray-700">目前盤點清單</h2>
-          <select id="filter-cat" onchange="renderTable()" class="border text-sm p-1.5 rounded bg-gray-50">
-            <option value="">顯示全部類別</option>
-          </select>
+    <!-- 區塊 3：DataGrid 表格區域 -->
+    <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
+      <div class="flex flex-wrap justify-between items-center gap-2">
+        <h2 class="text-lg font-semibold text-gray-700">目前盤點 DataGrid 清單</h2>
+        <div class="flex gap-2 items-center">
+          <!-- DataGrid 全局關鍵字搜尋框 -->
+          <input type="text" id="datagrid-search" placeholder="🔍 快速搜尋關鍵字..." class="border text-sm p-1.5 rounded w-48 focus:w-64 transition-all">
+          <button onclick="loadAllData()" class="text-sm bg-gray-100 border px-3 py-1.5 rounded hover:bg-gray-200">🔄 重新整理</button>
         </div>
-        <button onclick="loadAllData()" class="text-sm bg-gray-100 border px-3 py-1.5 rounded hover:bg-gray-200">🔄 重新整理</button>
       </div>
 
-      <!-- 簡易表格：僅顯示類別、品項名稱、數量、操作 -->
-      <div class="overflow-x-auto">
-        <table class="min-w-full border-collapse border border-gray-200">
-          <thead>
-            <tr class="bg-gray-100 text-left text-sm font-semibold text-gray-600 border-b">
-              <th class="p-3 w-1/4">類別</th>
-              <th class="p-3 w-2/4">品項名稱</th>
-              <th class="p-3 w-1/6">數量</th>
-              <th class="p-3 w-1/6 text-center">操作</th>
-            </tr>
-          </thead>
-          <tbody id="table-body" class="divide-y divide-gray-200 text-sm text-gray-700">
-            <tr><td colspan="4" class="p-4 text-center text-gray-400">資料載入中...</td></tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- DataGrid 掛載目標容器 -->
+      <div id="datagrid-table" class="rounded-lg border"></div>
     </div>
   </div>
 
@@ -116,6 +105,70 @@
 
     let rawCatalog = [];
     let inventoryData = [];
+    let dataGridTable = null;
+
+    // 初始化頁面與 DataGrid
+    window.addEventListener('DOMContentLoaded', () => {
+      initDataGrid();
+      loadAllData();
+    });
+
+    // 初始化 Tabulator DataGrid 表格
+    function initDataGrid() {
+      dataGridTable = new Tabulator("#datagrid-table", {
+        data: [],
+        layout: "fitColumns",
+        responsiveLayout: "collapse",
+        pagination: "local",
+        paginationSize: 10,
+        paginationSizeSelector: [10, 20, 50],
+        placeholder: "AA 目前尚無盤點紀錄",
+        columns: [
+          { 
+            title: "類別", 
+            field: "category", 
+            widthGrow: 1,
+            formatter: (cell) => `<span class="bg-gray-100 text-gray-700 px-2 py-0.5 rounded text-xs border">${cell.getValue() || '未分類'}</span>`
+          },
+          { 
+            title: "品項名稱", 
+            field: "itemName", 
+            widthGrow: 2,
+            formatter: (cell) => `<span class="font-medium text-gray-800">${cell.getValue()}</span>`
+          },
+          { 
+            title: "數量", 
+            field: "quantity", 
+            widthGrow: 1,
+            formatter: (cell) => `<span class="font-semibold text-blue-600">${cell.getValue()}</span>`
+          },
+          {
+            title: "操作",
+            field: "id",
+            width: 140,
+            headerHozAlign: "center",
+            hozAlign: "center",
+            formatter: (cell) => {
+              const rowData = cell.getRow().getData();
+              return `
+                <button onclick="editItem('${rowData.id}', '${rowData.category}', '${rowData.itemName}', ${rowData.quantity})" class="bg-amber-500 text-white px-2 py-1 rounded text-xs hover:bg-amber-600">修改</button>
+                <button onclick="deleteItem('${rowData.id}')" class="bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600 ml-1">刪除</button>
+              `;
+            }
+          }
+        ]
+      });
+
+      // 監聽搜尋輸入框事件
+      document.getElementById("datagrid-search").addEventListener("keyup", (e) => {
+        dataGridTable.setFilter([
+          [
+            { field: "category", type: "like", value: e.target.value },
+            { field: "itemName", type: "like", value: e.target.value }
+          ]
+        ]);
+      });
+    }
 
     async function loadAllData() {
       await fetchCatalog();
@@ -144,17 +197,19 @@
       }
     }
 
-    // 2. 讀取 inventory 頁籤
+    // 2. 讀取 inventory 頁籤並發送給 DataGrid 繪製
     async function fetchData() {
-      const tbody = document.getElementById('table-body');
-      tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-400">載入最新盤點中...</td></tr>';
       try {
         const res = await fetch(`${API_URL}?t=${Date.now()}`);
         const result = await res.json();
         inventoryData = result.data || [];
-        renderTable();
+        
+        // 更新 DataGrid 表格資料
+        if (dataGridTable) {
+          dataGridTable.setData(inventoryData);
+        }
       } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-red-500">載入失敗，請檢查網路或 API。</td></tr>';
+        console.error('盤點資料載入失敗', err);
       }
     }
 
@@ -164,12 +219,10 @@
 
       const catSelect = document.getElementById('item-cat');
       const catalogCatSelect = document.getElementById('catalog-cat-select');
-      const filterCat = document.getElementById('filter-cat');
 
       if (categories.length === 0) {
         catSelect.innerHTML = '<option value="">(無類別，請先建立)</option>';
         catalogCatSelect.innerHTML = '<option value="">-- 請先建立分類 --</option>';
-        filterCat.innerHTML = '<option value="">顯示全部類別</option>';
         return;
       }
 
@@ -179,7 +232,6 @@
       `;
 
       catSelect.innerHTML = buildOptions('全部類別');
-      filterCat.innerHTML = buildOptions('顯示全部類別');
       catalogCatSelect.innerHTML = buildOptions('-- 請選擇分類 --');
     }
 
@@ -293,37 +345,6 @@
       fetchData();
     }
 
-    // 渲染簡易表格（類別、品項名稱、數量、操作）
-    function renderTable() {
-      const tbody = document.getElementById('table-body');
-      const filterCat = document.getElementById('filter-cat').value;
-      tbody.innerHTML = '';
-
-      const filteredData = filterCat 
-        ? inventoryData.filter(d => d.category === filterCat)
-        : inventoryData;
-
-      if (!filteredData || filteredData.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-400">AA 目前尚無盤點紀錄</td></tr>';
-        return;
-      }
-
-      filteredData.forEach(item => {
-        const tr = document.createElement('tr');
-        tr.className = 'hover:bg-gray-50';
-        tr.innerHTML = `
-          <td class="p-3"><span class="bg-gray-100 text-gray-700 px-2 py-0.5 rounded text-xs border">${item.category || '未分類'}</span></td>
-          <td class="p-3 font-medium text-gray-800">${item.itemName}</td>
-          <td class="p-3 font-semibold text-blue-600">${item.quantity}</td>
-          <td class="p-3 text-center space-x-2">
-            <button onclick="editItem('${item.id}', '${item.category}', '${item.itemName}', ${item.quantity})" class="bg-amber-500 text-white px-2 py-1 rounded text-xs hover:bg-amber-600">修改</button>
-            <button onclick="deleteItem('${item.id}')" class="bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600">刪除</button>
-          </td>
-        `;
-        tbody.appendChild(tr);
-      });
-    }
-
     function editItem(id, category, name, qty) {
       document.getElementById('item-id').value = id;
       document.getElementById('item-cat').value = category;
@@ -357,8 +378,6 @@
       document.getElementById('btn-save').innerText = '新增盤點';
       document.getElementById('btn-cancel').classList.add('hidden');
     }
-
-    loadAllData();
   </script>
 </body>
 </html>
