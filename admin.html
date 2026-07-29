@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>連鎖總部叫貨後台管理系統</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      body { background-color: white !important; padding: 0 !important; }
+      .shadow-md, .shadow-sm { box-shadow: none !important; border: 1px solid #e5e7eb !important; }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 p-4 md:p-6 min-h-screen">
+  <div class="max-w-5xl mx-auto space-y-6">
+    
+    <!-- 頁首標題 (列印時隱藏) -->
+    <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-lg flex flex-wrap justify-between items-center gap-4 no-print">
+      <div>
+        <h1 class="text-2xl font-bold flex items-center gap-2">
+          📊 連鎖總部叫貨後台管理系統
+        </h1>
+        <p class="text-xs text-slate-300 mt-1">調閱與統計各分店每日叫貨單總表</p>
+      </div>
+      <button onclick="window.print()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2.5 rounded-xl transition flex items-center gap-1.5 shadow-md">
+        🖨️ 列印 / 匯出叫貨單
+      </button>
+    </div>
+
+    <!-- 查詢控制面板 (列印時隱藏) -->
+    <div class="bg-white p-5 rounded-xl shadow-md border border-slate-200 space-y-4 no-print">
+      <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wider">📅 查詢條件設定</h2>
+      
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- 叫貨日期 selector -->
+        <div>
+          <label class="block text-xs font-bold text-slate-500 mb-1">叫貨日期</label>
+          <input type="date" id="admin-date" onchange="fetchAdminData()" class="border-2 border-slate-200 p-2.5 rounded-xl w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none transition">
+        </div>
+
+        <!-- 門市 selector -->
+        <div>
+          <label class="block text-xs font-bold text-slate-500 mb-1">目標門市</label>
+          <select id="admin-store" onchange="renderAdminData()" class="border-2 border-slate-200 p-2.5 rounded-xl w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none transition">
+            <option value="">🏪 全部門市</option>
+            <option value="萬丹店">萬丹店</option>
+            <option value="潮州店">潮州店</option>
+            <option value="屏東店">屏東店</option>
+            <option value="仁愛店">仁愛店</option>
+            <option value="木崎">木崎</option>
+            <option value="東港店">東港店</option>
+          </select>
+        </div>
+
+        <!-- 重新整理按鈕 -->
+        <div class="flex items-end">
+          <button onclick="fetchAdminData()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold p-2.5 rounded-xl border border-slate-300 transition text-sm flex justify-center items-center gap-1">
+            🔄 重新讀取雲端資料
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 數據概覽卡片 -->
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div class="bg-white p-4 rounded-xl border shadow-sm">
+        <p class="text-xs font-bold text-slate-400">目前調閱門市</p>
+        <p id="stat-store-name" class="text-lg font-black text-slate-800 mt-1">全部門市</p>
+      </div>
+      <div class="bg-white p-4 rounded-xl border shadow-sm">
+        <p class="text-xs font-bold text-slate-400">當日叫貨總筆數</p>
+        <p id="stat-total-count" class="text-2xl font-black text-indigo-600 mt-1">0 筆</p>
+      </div>
+      <div class="bg-white p-4 rounded-xl border shadow-sm col-span-2 md:col-span-1">
+        <p class="text-xs font-bold text-slate-400">叫貨日期</p>
+        <p id="stat-date-display" class="text-lg font-black text-slate-800 mt-1">-</p>
+      </div>
+    </div>
+
+    <!-- 叫貨紀錄清單容器 (動態渲染) -->
+    <div id="admin-orders-container" class="space-y-6">
+      <div class="bg-white p-8 rounded-xl text-center text-slate-400 shadow-sm">
+        資料載入中...
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const API_URL = 'https://script.google.com/macros/s/AKfycbxiblsuljzndWVVMCbHOMekJqIKlshKcprpO6SS7i8PMTHnLojT1B4LXjutB_IEb3dVoQ/exec';
+
+    let rawAllInventory = [];
+
+    // 初始化：設為今天日期並發送請求
+    document.addEventListener('DOMContentLoaded', () => {
+      const today = new Date().toISOString().split('T')[0];
+      document.getElementById('admin-date').value = today;
+      fetchAdminData();
+    });
+
+    // 從後端拉取全部盤點叫貨資料
+    async function fetchAdminData() {
+      const container = document.getElementById('admin-orders-container');
+      container.innerHTML = '<div class="bg-white p-8 rounded-xl text-center text-slate-400 shadow-sm">正在從雲端抓取叫貨紀錄...</div>';
+
+      try {
+        const res = await fetch(`${API_URL}?t=${Date.now()}`);
+        const result = await res.json();
+        rawAllInventory = result.data || [];
+        renderAdminData();
+      } catch (err) {
+        container.innerHTML = '<div class="bg-white p-8 rounded-xl text-center text-red-500 shadow-sm">資料載入失敗，請檢查網路連線。</div>';
+      }
+    }
+
+    // 格式化時間 (月/日 HH:mm)
+    function formatTime(dateStr) {
+      if (!dateStr) return '-';
+      const parts = dateStr.split(' ');
+      const datePart = parts[0].split('-');
+      const timePart = parts[1] || '';
+      
+      if (datePart.length >= 3) {
+        return `${datePart[1]}/${datePart[2]} ${timePart}`;
+      }
+      return dateStr;
+    }
+
+    // 渲染資料
+    function renderAdminData() {
+      const selectedDate = document.getElementById('admin-date').value;
+      const selectedStore = document.getElementById('admin-store').value;
+      const container = document.getElementById('admin-orders-container');
+
+      // 更新統計卡片資訊
+      document.getElementById('stat-store-name').innerText = selectedStore || '全部門市';
+      document.getElementById('stat-date-display').innerText = selectedDate || '未指定日期';
+
+      // 1. 日期篩選
+      let filtered = rawAllInventory;
+      if (selectedDate) {
+        filtered = filtered.filter(d => d.updatedAt && d.updatedAt.startsWith(selectedDate));
+      }
+
+      // 2. 門市篩選
+      if (selectedStore) {
+        filtered = filtered.filter(d => d.store === selectedStore);
+      }
+
+      document.getElementById('stat-total-count').innerText = `${filtered.length} 筆`;
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div class="bg-white p-12 rounded-xl text-center text-slate-400 shadow-sm border">
+            <p class="text-lg font-bold">無此條件下的叫貨紀錄</p>
+            <p class="text-xs mt-1">請嘗試切換日期或門市進行查詢</p>
+          </div>
+        `;
+        return;
+      }
+
+      // 按門市將資料分組
+      const groupedByStore = {};
+      filtered.forEach(item => {
+        const storeName = item.store || '未指定門市';
+        if (!groupedByStore[storeName]) {
+          groupedByStore[storeName] = [];
+        }
+        groupedByStore[storeName].push(item);
+      });
+
+      container.innerHTML = '';
+
+      // 遍歷門市繪製區塊
+      Object.keys(groupedByStore).forEach(store => {
+        const storeOrders = groupedByStore[store];
+        const storeCard = document.createElement('div');
+        storeCard.className = 'bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden';
+
+        let rowsHtml = storeOrders.map((item, idx) => `
+          <tr class="hover:bg-slate-50 border-b last:border-0 text-slate-700">
+            <td class="p-3 font-medium text-slate-400 text-center w-12">${idx + 1}</td>
+            <td class="p-3 font-bold text-slate-800 whitespace-nowrap">${item.itemName}</td>
+            <td class="p-3 text-xs text-slate-500 whitespace-nowrap">
+              <span class="bg-slate-100 border text-slate-600 px-2 py-0.5 rounded">${item.category || '未分類'}</span>
+            </td>
+            <td class="p-3 text-center font-black text-indigo-600 text-base whitespace-nowrap">${item.quantity}</td>
+            <td class="p-3 text-center text-xs text-slate-400 whitespace-nowrap">${formatTime(item.updatedAt)}</td>
+          </tr>
+        `).join('');
+
+        storeCard.innerHTML = `
+          <div class="bg-slate-800 text-white px-5 py-3.5 flex justify-between items-center">
+            <h3 class="font-bold text-base flex items-center gap-2">
+              🏪 ${store}
+            </h3>
+            <span class="bg-indigo-500/30 text-indigo-200 text-xs font-bold px-2.5 py-1 rounded-full border border-indigo-400/30">
+              共 ${storeOrders.length} 項品項
+            </span>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="min-w-full border-collapse text-sm">
+              <thead>
+                <tr class="bg-slate-50 text-slate-500 font-bold border-b text-left">
+                  <th class="p-3 text-center w-12">#</th>
+                  <th class="p-3 whitespace-nowrap">品項名稱</th>
+                  <th class="p-3 whitespace-nowrap">類別</th>
+                  <th class="p-3 text-center whitespace-nowrap">叫貨數量</th>
+                  <th class="p-3 text-center whitespace-nowrap">時間</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+        `;
+
+        container.appendChild(storeCard);
+      });
+    }
+  </script>
+</body>
+</html>
