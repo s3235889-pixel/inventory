@@ -247,7 +247,6 @@
       const inputPassword = document.getElementById('store-password-input').value.trim();
       const correctPassword = STORE_PASSWORDS[selectedStore];
 
-      // 檢查密碼
       if (!inputPassword) {
         alert('請輸入門市授權密碼！');
         return;
@@ -259,14 +258,11 @@
         return;
       }
 
-      // 密碼驗證成功
       currentActiveStore = selectedStore;
 
-      // 更新介面展示文字
       document.getElementById('current-store-display').innerText = selectedStore;
       document.querySelectorAll('.target-store-text').forEach(el => el.innerText = selectedStore);
 
-      // 關閉視窗並讀取該門市資料
       document.getElementById('store-modal').classList.add('hidden');
       document.getElementById('store-password-input').value = '';
 
@@ -334,6 +330,7 @@
       }
     }
 
+    // 依類別與門市過濾下拉選單（已移除類別括號）
     function filterItemDropdown() {
       const selectedCat = document.getElementById('item-cat').value;
       const itemSelect = document.getElementById('item-name-select');
@@ -349,8 +346,9 @@
         return;
       }
 
+      // 已修改：僅顯示商品名稱，不帶有括號與類別說明
       itemSelect.innerHTML = '<option value="">-- 請選擇商品 --</option>' +
-        filtered.map(i => `<option value="${i.itemName}" data-cat="${i.category}">${i.itemName} (${i.category || '未分類'})</option>`).join('');
+        filtered.map(i => `<option value="${i.itemName}" data-cat="${i.category}">${i.itemName}</option>`).join('');
     }
 
     function addToQueue() {
@@ -554,7 +552,6 @@
       alert(`已成功將商品「${itemName}」加入【${currentActiveStore}】的「${category}」分類！`);
     }
 
-    // 初始進入頁面時開啟密碼驗證視窗
     document.addEventListener('DOMContentLoaded', () => {
       openStoreModal();
     });
