@@ -44,9 +44,9 @@
       </div>
     </details>
 
-    <!-- 區塊 2：盤點暫存填報區 -->
+    <!-- 區塊 2：點貨選擇區（加入購物車/暫存清單） -->
     <div class="bg-white p-6 rounded-xl shadow-md">
-      <h2 class="text-lg font-semibold mb-4 text-gray-700">1. 選擇品項加入暫存清單</h2>
+      <h2 class="text-lg font-semibold mb-4 text-gray-700">1. 選擇品項放入「盤點購物車」</h2>
       
       <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
         <!-- 類別篩選 -->
@@ -68,42 +68,50 @@
         <!-- 數量 -->
         <div>
           <label class="block text-xs font-bold text-gray-500 mb-1">盤點數量</label>
-          <input type="number" id="item-qty" placeholder="數量" class="border p-2 rounded w-full">
+          <input type="number" id="item-qty" placeholder="數量" class="border p-2 rounded w-full" min="1">
         </div>
 
-        <!-- 加入暫存按鈕 -->
+        <!-- 加入購物車按鈕 -->
         <div class="flex items-end">
-          <button onclick="addToQueue()" class="bg-amber-500 text-white px-4 py-2 rounded w-full hover:bg-amber-600 font-medium h-[42px]">
-            ➕ 加入預覽清單
+          <button onclick="addToQueue()" class="bg-amber-500 text-white px-4 py-2 rounded w-full hover:bg-amber-600 font-medium h-[42px] shadow flex justify-center items-center gap-1">
+            🛒 放入暫存購物車
           </button>
         </div>
       </div>
     </div>
 
-    <!-- 區塊 3：待送出預覽暫存區 (暫存清單) -->
-    <div class="bg-amber-50/50 border-2 border-amber-200 p-6 rounded-xl shadow-sm">
-      <div class="flex justify-between items-center mb-3">
+    <!-- 區塊 3：購物車預覽區 (暫存區) -->
+    <div class="bg-amber-50/60 border-2 border-amber-300 p-6 rounded-xl shadow-sm space-y-4">
+      <div class="flex flex-wrap justify-between items-center gap-2">
         <div class="flex items-center gap-2">
-          <h2 class="text-lg font-bold text-amber-900">2. 待送出預覽清單</h2>
-          <span id="queue-count" class="bg-amber-200 text-amber-900 text-xs px-2 py-0.5 rounded-full font-bold">0 筆</span>
+          <h2 class="text-lg font-bold text-amber-900 flex items-center gap-1">
+            🛒 2. 盤點購物車 (待一次性送出)
+          </h2>
+          <span id="queue-count" class="bg-amber-200 text-amber-900 text-xs px-2.5 py-0.5 rounded-full font-bold">0 筆項目</span>
         </div>
-        <button onclick="submitBatch()" id="btn-submit-batch" class="bg-emerald-600 text-white px-5 py-2 rounded-lg hover:bg-emerald-700 font-bold shadow-md transition disabled:opacity-50" disabled>
-          🚀 一次性全部送出到雲端
-        </button>
+        
+        <div class="flex items-center gap-2">
+          <button onclick="clearQueue()" id="btn-clear-queue" class="text-xs bg-white text-gray-600 hover:text-red-600 px-3 py-2 rounded border border-gray-300 transition hidden">
+            🗑️ 清空購物車
+          </button>
+          <button onclick="submitBatch()" id="btn-submit-batch" class="bg-emerald-600 text-white px-5 py-2 rounded-lg hover:bg-emerald-700 font-bold shadow-md transition disabled:opacity-40" disabled>
+            🚀 一次性全部送出至雲端
+          </button>
+        </div>
       </div>
 
       <div class="overflow-x-auto bg-white rounded-lg border border-amber-200">
         <table class="min-w-full border-collapse">
           <thead>
-            <tr class="bg-amber-100/60 text-left text-sm font-semibold text-amber-900 border-b">
+            <tr class="bg-amber-100/70 text-left text-sm font-semibold text-amber-900 border-b">
               <th class="p-3">類別</th>
               <th class="p-3">品項名稱</th>
-              <th class="p-3">盤點數量</th>
-              <th class="p-3 text-center">操作</th>
+              <th class="p-3 w-32">數量 (可直接修改)</th>
+              <th class="p-3 text-center w-24">操作</th>
             </tr>
           </thead>
           <tbody id="queue-table-body" class="divide-y divide-gray-100 text-sm text-gray-700">
-            <tr><td colspan="4" class="p-4 text-center text-gray-400">目前暫存清單為空，請從上方選擇品項加入預覽。</td></tr>
+            <tr><td colspan="4" class="p-4 text-center text-gray-400">目前購物車是空的，請從上方選擇品項並點擊「放入暫存購物車」。</td></tr>
           </tbody>
         </table>
       </div>
@@ -113,7 +121,7 @@
     <div class="bg-white p-6 rounded-xl shadow-md">
       <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
         <div class="flex items-center gap-3">
-          <h2 class="text-lg font-semibold text-gray-700">3. 雲端已存盤點紀錄</h2>
+          <h2 class="text-lg font-semibold text-gray-700">3. 雲端試算表已存紀錄 (inventory)</h2>
           <select id="filter-cat" onchange="renderTable()" class="border text-sm p-1.5 rounded bg-gray-50">
             <option value="">顯示全部類別</option>
           </select>
@@ -145,14 +153,13 @@
 
     let rawCatalog = [];
     let inventoryData = [];
-    let pendingQueue = []; // 暫存區陣列
+    let pendingQueue = []; // 購物車暫存陣列
 
     async function loadAllData() {
       await fetchCatalog();
       await fetchData();
     }
 
-    // 1. 讀取 items 頁籤
     async function fetchCatalog() {
       const itemSelect = document.getElementById('item-name-select');
       try {
@@ -172,7 +179,6 @@
       }
     }
 
-    // 2. 讀取 inventory 頁籤
     async function fetchData() {
       const tbody = document.getElementById('table-body');
       tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-gray-400">載入最新盤點中...</td></tr>';
@@ -182,7 +188,7 @@
         inventoryData = result.data || [];
         renderTable();
       } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-red-500">載入失敗，請檢查網路或 API。</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-red-500">載入失敗，請檢查網路。</td></tr>';
       }
     }
 
@@ -228,9 +234,9 @@
         filtered.map(i => `<option value="${i.itemName}" data-cat="${i.category}">${i.itemName} (${i.category || '未分類'})</option>`).join('');
     }
 
-    // ----------------- 【新增】暫存預覽區邏輯 -----------------
+    // ----------------- 購物車（暫存預覽）邏輯 -----------------
 
-    // 加入預覽暫存區
+    // 放入購物車
     function addToQueue() {
       const itemSelect = document.getElementById('item-name-select');
       const itemName = itemSelect.value;
@@ -238,12 +244,17 @@
       const category = selectedOption ? selectedOption.getAttribute('data-cat') || '未分類' : '未分類';
       const quantity = document.getElementById('item-qty').value;
 
-      if (!itemName || quantity === '') {
-        alert('請先選擇品項並輸入數量！');
+      if (!itemName || itemName.startsWith('--')) {
+        alert('請先從下拉選單選擇正確的「品項」！');
         return;
       }
 
-      // 檢查暫存區是否已有相同品項，有的話覆蓋數量
+      if (quantity === '' || Number(quantity) < 0) {
+        alert('請填寫正確的盤點數量！');
+        return;
+      }
+
+      // 檢查購物車內是否已有該品項，若有則直接更新數量
       const existingIndex = pendingQueue.findIndex(q => q.itemName === itemName && q.category === category);
       if (existingIndex > -1) {
         pendingQueue[existingIndex].quantity = quantity;
@@ -251,28 +262,31 @@
         pendingQueue.push({ category, itemName, quantity });
       }
 
-      // 重置輸入欄位
+      // 清空數量輸入框
       document.getElementById('item-qty').value = '';
       
       renderQueueTable();
     }
 
-    // 渲染暫存區表格
+    // 渲染購物車表格
     function renderQueueTable() {
       const tbody = document.getElementById('queue-table-body');
       const submitBtn = document.getElementById('btn-submit-batch');
+      const clearBtn = document.getElementById('btn-clear-queue');
       const countLabel = document.getElementById('queue-count');
 
-      countLabel.innerText = `${pendingQueue.length} 筆`;
+      countLabel.innerText = `${pendingQueue.length} 筆項目`;
       tbody.innerHTML = '';
 
       if (pendingQueue.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-400">目前暫存清單為空，請從上方選擇品項加入預覽。</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-400">目前購物車是空的，請從上方選擇品項並點擊「放入暫存購物車」。</td></tr>';
         submitBtn.disabled = true;
+        clearBtn.classList.add('hidden');
         return;
       }
 
       submitBtn.disabled = false;
+      clearBtn.classList.remove('hidden');
 
       pendingQueue.forEach((item, index) => {
         const tr = document.createElement('tr');
@@ -280,7 +294,9 @@
         tr.innerHTML = `
           <td class="p-3"><span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-xs font-medium">${item.category}</span></td>
           <td class="p-3 font-medium text-gray-800">${item.itemName}</td>
-          <td class="p-3 font-bold text-amber-600">${item.quantity}</td>
+          <td class="p-3">
+            <input type="number" value="${item.quantity}" onchange="updateQueueQty(${index}, this.value)" class="border px-2 py-1 rounded w-20 text-amber-900 font-bold bg-white text-center">
+          </td>
           <td class="p-3 text-center">
             <button onclick="removeFromQueue(${index})" class="text-red-500 hover:text-red-700 text-xs bg-red-50 px-2 py-1 rounded border border-red-200">移除</button>
           </td>
@@ -289,23 +305,37 @@
       });
     }
 
-    // 從暫存區移除單筆
+    // 購物車內直接修改數量
+    function updateQueueQty(index, newQty) {
+      if (newQty !== '' && Number(newQty) >= 0) {
+        pendingQueue[index].quantity = newQty;
+      }
+    }
+
+    // 單筆移除
     function removeFromQueue(index) {
       pendingQueue.splice(index, 1);
       renderQueueTable();
     }
 
-    // 🚀 批量一次性送出至雲端
+    // 清空購物車
+    function clearQueue() {
+      if (confirm('確定要清空整個購物車暫存嗎？')) {
+        pendingQueue = [];
+        renderQueueTable();
+      }
+    }
+
+    // 🚀 一次性全部送出到雲端
     async function submitBatch() {
       if (pendingQueue.length === 0) return;
-      if (!confirm(`確定要將這 ${pendingQueue.length} 筆資料一次性送出至雲端嗎？`)) return;
+      if (!confirm(`確定要將購物車內的 ${pendingQueue.length} 筆資料一次性發送至雲端試算表嗎？`)) return;
 
       const submitBtn = document.getElementById('btn-submit-batch');
       submitBtn.disabled = true;
-      submitBtn.innerText = '正在傳送至雲端...';
+      submitBtn.innerText = '正在寫入雲端...';
 
       try {
-        // 逐筆發送 request
         for (const item of pendingQueue) {
           const payload = {
             action: 'create',
@@ -321,19 +351,19 @@
           });
         }
 
-        alert('🎉 全部資料已成功寫入雲端試算表！');
-        pendingQueue = []; // 清空暫存
+        alert('🎉 購物車所有項目已成功一次性發送至雲端！');
+        pendingQueue = [];
         renderQueueTable();
-        fetchData(); // 重新載入正式清單
+        fetchData(); // 重新讀取下方已存清單
       } catch (err) {
-        alert('批次傳送過程中發生錯誤，請檢查網路。');
+        alert('發送過程發生錯誤，請檢查網路連線。');
       } finally {
         submitBtn.disabled = false;
-        submitBtn.innerText = '🚀 一次性全部送出到雲端';
+        submitBtn.innerText = '🚀 一次性全部送出至雲端';
       }
     }
 
-    // ----------------- 目錄與基礎功能 -----------------
+    // ----------------- 分類與目錄管理 -----------------
 
     async function addOnlyCategory() {
       const category = document.getElementById('new-single-cat').value.trim();
