@@ -153,7 +153,7 @@
           <thead>
             <tr class="bg-amber-100/70 text-left text-sm font-semibold text-amber-900 border-b">
               <th class="p-3">類別</th>
-              <th class="p-3">品項名稱</th>
+              <th class="p-3 whitespace-nowrap">品項名稱</th>
               <th class="p-3 w-32">數量 (可修改)</th>
               <th class="p-3 text-center w-24">操作</th>
             </tr>
@@ -165,7 +165,7 @@
       </div>
     </div>
 
-    <!-- 區塊 4：門市專屬歷史紀錄查詢區 (僅顯示 4 欄位：品項名稱、叫貨數量、叫貨時間 MM/DD、操作) -->
+    <!-- 區塊 4：門市專屬歷史紀錄查詢區 (品項名稱強制不換行) -->
     <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
       <div class="border-b pb-3 flex flex-wrap justify-between items-center gap-3">
         <div>
@@ -193,10 +193,10 @@
         <table class="min-w-full border-collapse border border-gray-200">
           <thead>
             <tr class="bg-gray-100 text-left text-sm font-semibold text-gray-600 border-b">
-              <th class="p-3">品項名稱</th>
-              <th class="p-3 text-center">叫貨數量</th>
-              <th class="p-3 text-center">叫貨時間</th>
-              <th class="p-3 text-center">操作</th>
+              <th class="p-3 whitespace-nowrap">品項名稱</th>
+              <th class="p-3 text-center whitespace-nowrap">叫貨數量</th>
+              <th class="p-3 text-center whitespace-nowrap">叫貨時間</th>
+              <th class="p-3 text-center whitespace-nowrap">操作</th>
             </tr>
           </thead>
           <tbody id="table-body" class="divide-y divide-gray-200 text-sm text-gray-700">
@@ -396,7 +396,7 @@
         tr.className = 'hover:bg-amber-50';
         tr.innerHTML = `
           <td class="p-3"><span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-xs font-medium">${item.category}</span></td>
-          <td class="p-3 font-medium text-gray-800">${item.itemName}</td>
+          <td class="p-3 font-medium text-gray-800 whitespace-nowrap">${item.itemName}</td>
           <td class="p-3">
             <input type="number" value="${item.quantity}" onchange="updateQueueQty(${index}, this.value)" class="border px-2 py-1 rounded w-20 text-amber-900 font-bold bg-white text-center">
           </td>
@@ -464,7 +464,6 @@
       }
     }
 
-    // 格式化叫貨時間：只保留月/日 (MM/DD)
     function formatMonthDay(dateStr) {
       if (!dateStr) return '-';
       const parts = dateStr.split(' ')[0].split('-');
@@ -474,7 +473,7 @@
       return dateStr;
     }
 
-    // 渲染歷史叫貨表格 (僅保留 4 欄位：品項名稱、叫貨數量、叫貨時間 MM/DD、操作)
+    // 渲染歷史叫貨表格 (品項名稱已設定不換行 whitespace-nowrap)
     function renderTable() {
       const tbody = document.getElementById('table-body');
       const filterDate = document.getElementById('filter-date').value;
@@ -500,10 +499,10 @@
         const tr = document.createElement('tr');
         tr.className = 'hover:bg-gray-50';
         tr.innerHTML = `
-          <td class="p-3 font-medium text-gray-800">${item.itemName}</td>
-          <td class="p-3 text-center font-bold text-blue-600">${item.quantity}</td>
-          <td class="p-3 text-center text-gray-500 text-xs font-semibold">${formatMonthDay(item.updatedAt)}</td>
-          <td class="p-3 text-center">
+          <td class="p-3 font-medium text-gray-800 whitespace-nowrap">${item.itemName}</td>
+          <td class="p-3 text-center font-bold text-blue-600 whitespace-nowrap">${item.quantity}</td>
+          <td class="p-3 text-center text-gray-500 text-xs font-semibold whitespace-nowrap">${formatMonthDay(item.updatedAt)}</td>
+          <td class="p-3 text-center whitespace-nowrap">
             <button onclick="deleteItem('${item.id}')" class="bg-red-500 text-white px-2.5 py-1 rounded text-xs hover:bg-red-600 shadow-sm">刪除</button>
           </td>
         `;
