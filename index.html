@@ -128,7 +128,7 @@
       </div>
     </div>
 
-    <!-- 區塊 3：購物車預覽區 -->
+    <!-- 區塊 3：購物車預覽區 (已移除類別欄位) -->
     <div class="bg-amber-50/60 border-2 border-amber-300 p-6 rounded-xl shadow-sm space-y-4">
       <div class="flex flex-wrap justify-between items-center gap-2">
         <div class="flex items-center gap-2">
@@ -152,20 +152,19 @@
         <table class="min-w-full border-collapse">
           <thead>
             <tr class="bg-amber-100/70 text-left text-sm font-semibold text-amber-900 border-b">
-              <th class="p-3">類別</th>
               <th class="p-3 whitespace-nowrap">品項名稱</th>
-              <th class="p-3 w-32">數量 (可修改)</th>
-              <th class="p-3 text-center w-24">操作</th>
+              <th class="p-3 w-32 whitespace-nowrap">數量 (可修改)</th>
+              <th class="p-3 text-center w-24 whitespace-nowrap">操作</th>
             </tr>
           </thead>
           <tbody id="queue-table-body" class="divide-y divide-gray-100 text-sm text-gray-700">
-            <tr><td colspan="4" class="p-4 text-center text-gray-400">目前購物車是空的。</td></tr>
+            <tr><td colspan="3" class="p-4 text-center text-gray-400">目前購物車是空的。</td></tr>
           </tbody>
         </table>
       </div>
     </div>
 
-    <!-- 區塊 4：門市專屬歷史紀錄查詢區 (品項名稱強制不換行) -->
+    <!-- 區塊 4：門市專屬歷史紀錄查詢區 -->
     <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
       <div class="border-b pb-3 flex flex-wrap justify-between items-center gap-3">
         <div>
@@ -372,6 +371,7 @@
       renderQueueTable();
     }
 
+    // 渲染購物車表格 (已移除類別欄位)
     function renderQueueTable() {
       const tbody = document.getElementById('queue-table-body');
       const submitBtn = document.getElementById('btn-submit-batch');
@@ -382,7 +382,7 @@
       tbody.innerHTML = '';
 
       if (pendingQueue.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-400">目前購物車是空的。</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-400">目前購物車是空的。</td></tr>';
         submitBtn.disabled = true;
         clearBtn.classList.add('hidden');
         return;
@@ -395,7 +395,6 @@
         const tr = document.createElement('tr');
         tr.className = 'hover:bg-amber-50';
         tr.innerHTML = `
-          <td class="p-3"><span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-xs font-medium">${item.category}</span></td>
           <td class="p-3 font-medium text-gray-800 whitespace-nowrap">${item.itemName}</td>
           <td class="p-3">
             <input type="number" value="${item.quantity}" onchange="updateQueueQty(${index}, this.value)" class="border px-2 py-1 rounded w-20 text-amber-900 font-bold bg-white text-center">
@@ -473,7 +472,6 @@
       return dateStr;
     }
 
-    // 渲染歷史叫貨表格 (品項名稱已設定不換行 whitespace-nowrap)
     function renderTable() {
       const tbody = document.getElementById('table-body');
       const filterDate = document.getElementById('filter-date').value;
