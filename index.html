@@ -165,7 +165,7 @@
       </div>
     </div>
 
-    <!-- 區塊 4：門市專屬歷史紀錄查詢區 -->
+    <!-- 區塊 4：門市專屬歷史紀錄查詢區 (精簡版) -->
     <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
       <div class="border-b pb-3 flex flex-wrap justify-between items-center gap-3">
         <div>
@@ -193,16 +193,14 @@
         <table class="min-w-full border-collapse border border-gray-200">
           <thead>
             <tr class="bg-gray-100 text-left text-sm font-semibold text-gray-600 border-b">
-              <th class="p-3">門市</th>
-              <th class="p-3">類別</th>
               <th class="p-3">品項名稱</th>
-              <th class="p-3">叫貨數量</th>
-              <th class="p-3">叫貨時間</th>
+              <th class="p-3 text-center">叫貨數量</th>
+              <th class="p-3 text-center">叫貨時間</th>
               <th class="p-3 text-center">操作</th>
             </tr>
           </thead>
           <tbody id="table-body" class="divide-y divide-gray-200 text-sm text-gray-700">
-            <tr><td colspan="6" class="p-4 text-center text-gray-400">資料載入中...</td></tr>
+            <tr><td colspan="4" class="p-4 text-center text-gray-400">資料載入中...</td></tr>
           </tbody>
         </table>
       </div>
@@ -211,9 +209,9 @@
   </div>
 
   <script>
+    // 已更新為最新的 API Web App URL
     const API_URL = 'https://script.google.com/macros/s/AKfycbxiblsuljzndWVVMCbHOMekJqIKlshKcprpO6SS7i8PMTHnLojT1B4LXjutB_IEb3dVoQ/exec';
 
-    // 🔑 各門市密碼對照表
     const STORE_PASSWORDS = {
       '萬丹店': '1101',
       '潮州店': '1201',
@@ -228,7 +226,6 @@
     let inventoryData = [];
     let pendingQueue = [];
 
-    // 開啟登入彈窗
     function openStoreModal() {
       if (pendingQueue.length > 0) {
         if (!confirm('切換門市將會清空目前購物車未送出的暫存項目，確定要切換嗎？')) {
@@ -241,7 +238,6 @@
       document.getElementById('store-modal').classList.remove('hidden');
     }
 
-    // 驗證密碼並登入門市
     function confirmStoreSelection() {
       const selectedStore = document.getElementById('modal-store-select').value;
       const inputPassword = document.getElementById('store-password-input').value.trim();
@@ -296,14 +292,14 @@
 
     async function fetchData() {
       const tbody = document.getElementById('table-body');
-      tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-gray-400">載入門市專屬盤點紀錄中...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-400">載入門市專屬盤點紀錄中...</td></tr>';
       try {
         const res = await fetch(`${API_URL}?t=${Date.now()}`);
         const result = await res.json();
         inventoryData = result.data || [];
         renderTable();
       } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-red-500">載入失敗，請檢查網路。</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-red-500">載入失敗，請檢查網路。</td></tr>';
       }
     }
 
@@ -330,7 +326,6 @@
       }
     }
 
-    // 依類別與門市過濾下拉選單（已移除類別括號）
     function filterItemDropdown() {
       const selectedCat = document.getElementById('item-cat').value;
       const itemSelect = document.getElementById('item-name-select');
@@ -346,7 +341,6 @@
         return;
       }
 
-      // 已修改：僅顯示商品名稱，不帶有括號與類別說明
       itemSelect.innerHTML = '<option value="">-- 請選擇商品 --</option>' +
         filtered.map(i => `<option value="${i.itemName}" data-cat="${i.category}">${i.itemName}</option>`).join('');
     }
@@ -471,6 +465,15 @@
       }
     }
 
+    function formatMonthDay(dateStr) {
+      if (!dateStr) return '-';
+      const parts = dateStr.split(' ')[0].split('-');
+      if (parts.length >= 3) {
+        return `${parts[1]}/${parts[2]}`;
+      }
+      return dateStr;
+    }
+
     function renderTable() {
       const tbody = document.getElementById('table-body');
       const filterDate = document.getElementById('filter-date').value;
@@ -488,7 +491,7 @@
       }
 
       if (!filteredData || filteredData.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-400">【${currentActiveStore}】查無符合條件的歷史叫貨紀錄</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">【${currentActiveStore}】查無符合條件的歷史叫貨紀錄</td></tr>`;
         return;
       }
 
@@ -496,13 +499,11 @@
         const tr = document.createElement('tr');
         tr.className = 'hover:bg-gray-50';
         tr.innerHTML = `
-          <td class="p-3"><span class="bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded text-xs">${item.store}</span></td>
-          <td class="p-3"><span class="bg-gray-100 text-gray-700 px-2 py-0.5 rounded text-xs border">${item.category || '未分類'}</span></td>
           <td class="p-3 font-medium text-gray-800">${item.itemName}</td>
-          <td class="p-3 font-semibold text-blue-600">${item.quantity}</td>
-          <td class="p-3 text-gray-500 text-xs">${item.updatedAt || '-'}</td>
+          <td class="p-3 text-center font-bold text-blue-600">${item.quantity}</td>
+          <td class="p-3 text-center text-gray-500 text-xs font-semibold">${formatMonthDay(item.updatedAt)}</td>
           <td class="p-3 text-center">
-            <button onclick="deleteItem('${item.id}')" class="bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600">刪除</button>
+            <button onclick="deleteItem('${item.id}')" class="bg-red-500 text-white px-2.5 py-1 rounded text-xs hover:bg-red-600 shadow-sm">刪除</button>
           </td>
         `;
         tbody.appendChild(tr);
