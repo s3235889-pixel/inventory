@@ -165,7 +165,7 @@
       </div>
     </div>
 
-    <!-- 區塊 4：門市專屬歷史紀錄查詢區 (精簡版) -->
+    <!-- 區塊 4：門市專屬歷史紀錄查詢區 (僅顯示 4 欄位：品項名稱、叫貨數量、叫貨時間 MM/DD、操作) -->
     <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
       <div class="border-b pb-3 flex flex-wrap justify-between items-center gap-3">
         <div>
@@ -209,7 +209,6 @@
   </div>
 
   <script>
-    // 已更新為最新的 API Web App URL
     const API_URL = 'https://script.google.com/macros/s/AKfycbxiblsuljzndWVVMCbHOMekJqIKlshKcprpO6SS7i8PMTHnLojT1B4LXjutB_IEb3dVoQ/exec';
 
     const STORE_PASSWORDS = {
@@ -465,6 +464,7 @@
       }
     }
 
+    // 格式化叫貨時間：只保留月/日 (MM/DD)
     function formatMonthDay(dateStr) {
       if (!dateStr) return '-';
       const parts = dateStr.split(' ')[0].split('-');
@@ -474,6 +474,7 @@
       return dateStr;
     }
 
+    // 渲染歷史叫貨表格 (僅保留 4 欄位：品項名稱、叫貨數量、叫貨時間 MM/DD、操作)
     function renderTable() {
       const tbody = document.getElementById('table-body');
       const filterDate = document.getElementById('filter-date').value;
