@@ -101,12 +101,12 @@
       <div class="flex flex-wrap justify-between items-center gap-2">
         <h2 class="text-lg font-semibold text-gray-700">1. 選擇商品放入購物車 (<span class="target-store-text font-bold text-indigo-700">--</span>)</h2>
         
-        <!-- ⏰ 點貨時段切換 (下午 / 打烊) -->
+        <!-- ⏰ 點貨時段切換 (根據時間自動判斷 PM 6:00) -->
         <div class="flex items-center gap-2 bg-amber-50 p-1.5 px-3 rounded-lg border border-amber-200">
-          <label class="text-xs font-bold text-amber-900 whitespace-nowrap">⏰ 點貨時段：</label>
+          <label class="text-xs font-bold text-amber-900 whitespace-nowrap">⏰ 當前點貨時段：</label>
           <select id="work-shift-select" class="bg-white text-gray-800 font-bold px-2.5 py-1 rounded border text-xs focus:outline-none">
-            <option value="下午">下午</option>
-            <option value="打烊">打烊</option>
+            <option value="下午">下午 (18:00前)</option>
+            <option value="打烊">打烊 (18:00後)</option>
           </select>
         </div>
       </div>
@@ -209,12 +209,12 @@
       </div>
     </div>
 
-    <!-- 區塊 4：門市專屬歷史紀錄查詢區 (純前端日期與「時段」過濾) -->
+    <!-- 區塊 4：門市專屬歷史紀錄查詢區 -->
     <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
       <div class="border-b pb-3 flex flex-wrap justify-between items-center gap-3">
         <div>
           <h2 class="text-lg font-bold text-gray-800">🔍 3. 「<span class="target-store-text font-bold text-indigo-700">--</span>」專屬叫貨歷史紀錄</h2>
-          <p class="text-xs text-gray-400 mt-0.5">預設顯示本日叫貨，可依日期、類別及時段獨立篩選</p>
+          <p class="text-xs text-gray-400 mt-0.5">預設顯示本日叫貨，系統已依 PM 6:00 自動區分下午與打烊</p>
         </div>
         <button onclick="loadAllData()" class="text-xs bg-gray-100 border px-3 py-1.5 rounded hover:bg-gray-200 flex items-center gap-1">🔄 重新整理資料</button>
       </div>
@@ -229,8 +229,8 @@
           <label class="block text-xs font-bold text-gray-600 mb-1">⏰ 篩選時段 (下午 / 打烊)</label>
           <select id="filter-shift" onchange="renderTable()" class="border p-2 rounded w-full text-sm bg-white font-medium">
             <option value="">全部時段</option>
-            <option value="下午">下午</option>
-            <option value="打烊">打烊</option>
+            <option value="下午">下午 (18:00前)</option>
+            <option value="打烊">打烊 (18:00後)</option>
           </select>
         </div>
 
@@ -248,7 +248,7 @@
             <tr class="bg-gray-100 text-left text-sm font-semibold text-gray-600 border-b">
               <th class="p-3 whitespace-nowrap">品項名稱</th>
               <th class="p-3 text-center whitespace-nowrap">叫貨數量</th>
-              <th class="p-3 text-center whitespace-nowrap">叫貨時間與時段</th>
+              <th class="p-3 text-center whitespace-nowrap">叫貨日期與時段</th>
               <th class="p-3 text-center whitespace-nowrap">操作</th>
             </tr>
           </thead>
@@ -278,6 +278,7 @@
     let inventoryData = [];
     let pendingQueue = [];
 
+    // 設定日期輸入框預設為今天，並以 PM 6:00 (18:00) 判斷預設時段
     function setDefaultDateAndShift() {
       const now = new Date();
       const today = now.toISOString().split('T')[0];
@@ -286,10 +287,11 @@
         filterDateInput.value = today;
       }
 
+      // 💡 時間判斷式：18:00 (PM 6:00) 前為「下午」，18:00 後為「打烊」
       const hours = now.getHours();
       const shiftSelect = document.getElementById('work-shift-select');
       if (shiftSelect) {
-        shiftSelect.value = (hours < 17) ? '下午' : '打烊';
+        shiftSelect.value = (hours < 18) ? '下午' : '打烊';
       }
     }
 
@@ -506,7 +508,6 @@
       }
     }
 
-    // 💡 前端送出處理（純前端帶入時段標籤）
     async function submitBatch() {
       if (pendingQueue.length === 0) return;
       
@@ -520,7 +521,6 @@
 
       try {
         for (const item of pendingQueue) {
-          // 純前端做法：在不更改後端程式的前提下，將門市與時段組合標記
           const payload = {
             action: 'create',
             store: `${currentActiveStore} (${currentShift})`,
@@ -548,28 +548,49 @@
       }
     }
 
-    function formatMonthDayAndShift(dateStr, storeStr) {
-      if (!dateStr) return { date: '-', shiftBadge: '' };
-      
-      const parts = dateStr.split(' ')[0].split('-');
-      let dateFormatted = dateStr;
-      if (parts.length >= 3) {
-        dateFormatted = `${parts[1]}/${parts[2]}`;
+    // 💡 歷史紀錄時間與時段判斷式 (以 PM 6:00 / 18:00 為基準)
+    function parseDateAndShift(dateStr, storeStr) {
+      if (!dateStr) return { date: '-', shiftName: '下午', shiftBadge: '' };
+
+      const parts = dateStr.split(' ');
+      const datePart = parts[0] || '';
+      const timePart = parts[1] || '';
+
+      // 1. 格式化日期為 月/日
+      let formattedDate = datePart;
+      const dParts = datePart.split('-');
+      if (dParts.length >= 3) {
+        formattedDate = `${dParts[1]}/${dParts[2]}`;
       }
 
+      // 2. 判斷時段邏輯
+      let shiftName = '下午';
+
+      // 先檢查文字中有無直接註記 (下午/打烊)
+      if ((storeStr && storeStr.includes('打烊')) || (dateStr && dateStr.includes('打烊'))) {
+        shiftName = '打烊';
+      } else if ((storeStr && storeStr.includes('下午')) || (dateStr && dateStr.includes('下午'))) {
+        shiftName = '下午';
+      } else if (timePart && timePart.includes(':')) {
+        // 💡 如果文字沒有，直接用時間點判斷：PM 6:00 (18:00) 之前為下午，之後為打烊
+        const hour = parseInt(timePart.split(':')[0], 10);
+        if (!isNaN(hour)) {
+          shiftName = (hour >= 18) ? '打烊' : '下午';
+        }
+      }
+
+      // 3. 渲染對應樣式標籤
       let shiftBadge = '';
-      if ((storeStr && storeStr.includes('下午')) || (dateStr && dateStr.includes('下午'))) {
-        shiftBadge = '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-xs font-bold border border-amber-300 ml-1.5">下午</span>';
-      } else if ((storeStr && storeStr.includes('打烊')) || (dateStr && dateStr.includes('打烊'))) {
+      if (shiftName === '打烊') {
         shiftBadge = '<span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full text-xs font-bold border border-purple-300 ml-1.5">打烊</span>';
       } else {
-        shiftBadge = '<span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs font-medium border border-gray-300 ml-1.5">全天</span>';
+        shiftBadge = '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-xs font-bold border border-amber-300 ml-1.5">下午</span>';
       }
 
-      return { date: dateFormatted, shiftBadge };
+      return { date: formattedDate, shiftName, shiftBadge };
     }
 
-    // 歷史紀錄渲染 (兼顧傳統門市名稱與純前端時段過濾)
+    // 歷史紀錄表格渲染與篩選
     function renderTable() {
       const tbody = document.getElementById('table-body');
       const filterDate = document.getElementById('filter-date').value;
@@ -578,36 +599,42 @@
 
       tbody.innerHTML = '';
 
-      // 匹配當前門市（相容原本的門市名稱與帶有時段標記的門市名稱）
       let filteredData = inventoryData.filter(d => d.store && d.store.includes(currentActiveStore));
 
+      // 1. 日期篩選
       if (filterDate) {
         filteredData = filteredData.filter(d => d.updatedAt && d.updatedAt.startsWith(filterDate));
       }
       
-      if (filterShift) {
-        filteredData = filteredData.filter(d => (d.store && d.store.includes(filterShift)) || (d.updatedAt && d.updatedAt.includes(filterShift)));
-      }
-
+      // 2. 類別篩選
       if (filterCat) {
         filteredData = filteredData.filter(d => d.category === filterCat);
       }
 
-      if (!filteredData || filteredData.length === 0) {
+      // 將資料帶入時間判斷邏輯處理
+      let preparedList = filteredData.map(item => {
+        const parsed = parseDateAndShift(item.updatedAt, item.store);
+        return { ...item, parsed };
+      });
+
+      // 3. 時段篩選 (下午 / 打烊)
+      if (filterShift) {
+        preparedList = preparedList.filter(item => item.parsed.shiftName === filterShift);
+      }
+
+      if (!preparedList || preparedList.length === 0) {
         tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">【${currentActiveStore}】查無符合條件的叫貨紀錄</td></tr>`;
         return;
       }
 
-      filteredData.forEach(item => {
-        const { date, shiftBadge } = formatMonthDayAndShift(item.updatedAt, item.store);
-
+      preparedList.forEach(item => {
         const tr = document.createElement('tr');
         tr.className = 'hover:bg-gray-50';
         tr.innerHTML = `
           <td class="p-3 font-medium text-gray-800 whitespace-nowrap">${item.itemName}</td>
           <td class="p-3 text-center font-bold text-blue-600 whitespace-nowrap">${item.quantity}</td>
           <td class="p-3 text-center text-gray-600 text-xs font-semibold whitespace-nowrap">
-            ${date} ${shiftBadge}
+            ${item.parsed.date} ${item.parsed.shiftBadge}
           </td>
           <td class="p-3 text-center whitespace-nowrap">
             <button onclick="deleteItem('${item.id}')" class="bg-red-500 text-white px-2.5 py-1 rounded text-xs hover:bg-red-600 shadow-sm">刪除</button>
