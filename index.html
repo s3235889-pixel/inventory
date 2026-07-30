@@ -209,7 +209,7 @@
       </div>
     </div>
 
-    <!-- 區塊 4：門市專屬歷史紀錄查詢區 (支援日期與「時段」下拉篩選) -->
+    <!-- 區塊 4：門市專屬歷史紀錄查詢區 (純前端日期與「時段」過濾) -->
     <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
       <div class="border-b pb-3 flex flex-wrap justify-between items-center gap-3">
         <div>
@@ -248,7 +248,7 @@
             <tr class="bg-gray-100 text-left text-sm font-semibold text-gray-600 border-b">
               <th class="p-3 whitespace-nowrap">品項名稱</th>
               <th class="p-3 text-center whitespace-nowrap">叫貨數量</th>
-              <th class="p-3 text-center whitespace-nowrap">叫貨日期與時段</th>
+              <th class="p-3 text-center whitespace-nowrap">叫貨時間與時段</th>
               <th class="p-3 text-center whitespace-nowrap">操作</th>
             </tr>
           </thead>
@@ -506,6 +506,7 @@
       }
     }
 
+    // 💡 前端送出處理（純前端帶入時段標籤）
     async function submitBatch() {
       if (pendingQueue.length === 0) return;
       
@@ -519,13 +520,13 @@
 
       try {
         for (const item of pendingQueue) {
+          // 純前端做法：在不更改後端程式的前提下，將門市與時段組合標記
           const payload = {
             action: 'create',
-            store: currentActiveStore,
+            store: `${currentActiveStore} (${currentShift})`,
             category: item.category,
             itemName: item.itemName,
-            quantity: item.quantity,
-            shift: currentShift
+            quantity: item.quantity
           };
 
           await fetch(API_URL, {
@@ -547,8 +548,7 @@
       }
     }
 
-    // 格式化日期與時段標籤
-    function formatMonthDayAndShift(dateStr) {
+    function formatMonthDayAndShift(dateStr, storeStr) {
       if (!dateStr) return { date: '-', shiftBadge: '' };
       
       const parts = dateStr.split(' ')[0].split('-');
@@ -558,9 +558,9 @@
       }
 
       let shiftBadge = '';
-      if (dateStr.includes('下午')) {
+      if ((storeStr && storeStr.includes('下午')) || (dateStr && dateStr.includes('下午'))) {
         shiftBadge = '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-xs font-bold border border-amber-300 ml-1.5">下午</span>';
-      } else if (dateStr.includes('打烊')) {
+      } else if ((storeStr && storeStr.includes('打烊')) || (dateStr && dateStr.includes('打烊'))) {
         shiftBadge = '<span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full text-xs font-bold border border-purple-300 ml-1.5">打烊</span>';
       } else {
         shiftBadge = '<span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs font-medium border border-gray-300 ml-1.5">全天</span>';
@@ -569,7 +569,7 @@
       return { date: dateFormatted, shiftBadge };
     }
 
-    // 歷史紀錄渲染（支援 日期、時段、類別 交叉過濾）
+    // 歷史紀錄渲染 (兼顧傳統門市名稱與純前端時段過濾)
     function renderTable() {
       const tbody = document.getElementById('table-body');
       const filterDate = document.getElementById('filter-date').value;
@@ -578,19 +578,17 @@
 
       tbody.innerHTML = '';
 
-      let filteredData = inventoryData.filter(d => d.store === currentActiveStore);
+      // 匹配當前門市（相容原本的門市名稱與帶有時段標記的門市名稱）
+      let filteredData = inventoryData.filter(d => d.store && d.store.includes(currentActiveStore));
 
-      // 1. 日期過濾
       if (filterDate) {
         filteredData = filteredData.filter(d => d.updatedAt && d.updatedAt.startsWith(filterDate));
       }
       
-      // 2. 時段過濾 (下午 / 打烊)
       if (filterShift) {
-        filteredData = filteredData.filter(d => d.updatedAt && d.updatedAt.includes(filterShift));
+        filteredData = filteredData.filter(d => (d.store && d.store.includes(filterShift)) || (d.updatedAt && d.updatedAt.includes(filterShift)));
       }
 
-      // 3. 類別過濾
       if (filterCat) {
         filteredData = filteredData.filter(d => d.category === filterCat);
       }
@@ -601,7 +599,7 @@
       }
 
       filteredData.forEach(item => {
-        const { date, shiftBadge } = formatMonthDayAndShift(item.updatedAt);
+        const { date, shiftBadge } = formatMonthDayAndShift(item.updatedAt, item.store);
 
         const tr = document.createElement('tr');
         tr.className = 'hover:bg-gray-50';
