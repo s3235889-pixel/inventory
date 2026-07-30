@@ -96,9 +96,20 @@
       </div>
     </details>
 
-    <!-- 區塊 2：點貨選擇區 (已加入關鍵字搜尋功能) -->
+    <!-- 區塊 2：點貨選擇區 (18:00前為下午，18:00後為打烊) -->
     <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
-      <h2 class="text-lg font-semibold text-gray-700">1. 選擇商品放入購物車 (<span class="target-store-text font-bold text-indigo-700">--</span>)</h2>
+      <div class="flex flex-wrap justify-between items-center gap-2">
+        <h2 class="text-lg font-semibold text-gray-700">1. 選擇商品放入購物車 (<span class="target-store-text font-bold text-indigo-700">--</span>)</h2>
+        
+        <!-- ⏰ 點貨時段切換 (下午 / 打烊) -->
+        <div class="flex items-center gap-2 bg-amber-50 p-1.5 px-3 rounded-lg border border-amber-200">
+          <label class="text-xs font-bold text-amber-900 whitespace-nowrap">⏰ 點貨時段：</label>
+          <select id="work-shift-select" class="bg-white text-gray-800 font-bold px-2.5 py-1 rounded border text-xs focus:outline-none">
+            <option value="下午">下午</option>
+            <option value="打烊">打烊</option>
+          </select>
+        </div>
+      </div>
       
       <!-- 🔍 關鍵字搜尋欄位 -->
       <div>
@@ -198,7 +209,7 @@
       </div>
     </div>
 
-    <!-- 區塊 4：門市專屬歷史紀錄查詢區 (預設帶入今天日期) -->
+    <!-- 區塊 4：門市專屬歷史紀錄查詢區 -->
     <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
       <div class="border-b pb-3 flex flex-wrap justify-between items-center gap-3">
         <div>
@@ -228,7 +239,7 @@
             <tr class="bg-gray-100 text-left text-sm font-semibold text-gray-600 border-b">
               <th class="p-3 whitespace-nowrap">品項名稱</th>
               <th class="p-3 text-center whitespace-nowrap">叫貨數量</th>
-              <th class="p-3 text-center whitespace-nowrap">叫貨時間</th>
+              <th class="p-3 text-center whitespace-nowrap">叫貨時間 / 時段</th>
               <th class="p-3 text-center whitespace-nowrap">操作</th>
             </tr>
           </thead>
@@ -258,11 +269,20 @@
     let inventoryData = [];
     let pendingQueue = [];
 
-    function setDefaultDateToToday() {
-      const today = new Date().toISOString().split('T')[0];
+    // 設定日期預設為今天，並依時間 (18:00) 自動選定「下午」或「打烊」
+    function setDefaultDateAndShift() {
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
       const filterDateInput = document.getElementById('filter-date');
       if (filterDateInput && !filterDateInput.value) {
         filterDateInput.value = today;
+      }
+
+      // 18:00 (含 17:59) 前預設「下午」，18:00 後預設「打烊」
+      const hours = now.getHours();
+      const shiftSelect = document.getElementById('work-shift-select');
+      if (shiftSelect) {
+        shiftSelect.value = (hours < 18) ? '下午' : '打烊';
       }
     }
 
@@ -302,7 +322,7 @@
       document.getElementById('store-modal').classList.add('hidden');
       document.getElementById('store-password-input').value = '';
 
-      setDefaultDateToToday();
+      setDefaultDateAndShift();
       loadAllData();
     }
 
@@ -367,21 +387,17 @@
       }
     }
 
-    // 依類別與關鍵字動態過濾商品選單
     function filterItemDropdown() {
       const selectedCat = document.getElementById('item-cat').value;
       const searchKeyword = (document.getElementById('item-search-input')?.value || '').trim().toLowerCase();
       const itemSelect = document.getElementById('item-name-select');
 
-      // 1. 門市過濾
       let storeItems = rawCatalog.filter(i => (i.store === currentActiveStore || !i.store) && i.itemName);
 
-      // 2. 類別過濾
       if (selectedCat) {
         storeItems = storeItems.filter(i => i.category === selectedCat);
       }
 
-      // 3. 關鍵字過濾
       if (searchKeyword) {
         storeItems = storeItems.filter(i => i.itemName.toLowerCase().includes(searchKeyword));
       }
@@ -416,10 +432,9 @@
         pendingQueue.push({ category, itemName, quantity });
       }
 
-      // 放入購物車後重置數量選擇為 1，並清空搜尋框
       document.getElementById('item-qty').value = "1";
       document.getElementById('item-search-input').value = "";
-      filterItemDropdown(); // 恢復完整列表
+      filterItemDropdown();
       renderQueueTable();
     }
 
@@ -486,8 +501,10 @@
 
     async function submitBatch() {
       if (pendingQueue.length === 0) return;
+      
+      const currentShift = document.getElementById('work-shift-select').value;
 
-      if (!confirm(`確定要將【${currentActiveStore}】的 ${pendingQueue.length} 筆叫貨資料送出嗎？`)) return;
+      if (!confirm(`確定要將【${currentActiveStore}】(${currentShift}) 的 ${pendingQueue.length} 筆叫貨資料送出嗎？`)) return;
 
       const submitBtn = document.getElementById('btn-submit-batch');
       submitBtn.disabled = true;
@@ -497,10 +514,11 @@
         for (const item of pendingQueue) {
           const payload = {
             action: 'create',
-            store: currentActiveStore,
+            store: `${currentActiveStore}`,
             category: item.category,
             itemName: item.itemName,
-            quantity: item.quantity
+            quantity: item.quantity,
+            shift: currentShift
           };
 
           await fetch(API_URL, {
@@ -510,7 +528,7 @@
           });
         }
 
-        alert(`🎉 【${currentActiveStore}】的所有叫貨項目已成功送出！`);
+        alert(`🎉 【${currentActiveStore}】(${currentShift}) 的所有叫貨項目已成功送出！`);
         pendingQueue = [];
         renderQueueTable();
         fetchData();
@@ -553,12 +571,18 @@
       }
 
       filteredData.forEach(item => {
+        let shiftTag = '';
+        if (item.updatedAt && item.updatedAt.includes('下午')) shiftTag = '<span class="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[10px] ml-1 font-bold">下午</span>';
+        else if (item.updatedAt && item.updatedAt.includes('打烊')) shiftTag = '<span class="bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded text-[10px] ml-1 font-bold">打烊</span>';
+
         const tr = document.createElement('tr');
         tr.className = 'hover:bg-gray-50';
         tr.innerHTML = `
           <td class="p-3 font-medium text-gray-800 whitespace-nowrap">${item.itemName}</td>
           <td class="p-3 text-center font-bold text-blue-600 whitespace-nowrap">${item.quantity}</td>
-          <td class="p-3 text-center text-gray-500 text-xs font-semibold whitespace-nowrap">${formatMonthDay(item.updatedAt)}</td>
+          <td class="p-3 text-center text-gray-500 text-xs font-semibold whitespace-nowrap">
+            ${formatMonthDay(item.updatedAt)} ${shiftTag}
+          </td>
           <td class="p-3 text-center whitespace-nowrap">
             <button onclick="deleteItem('${item.id}')" class="bg-red-500 text-white px-2.5 py-1 rounded text-xs hover:bg-red-600 shadow-sm">刪除</button>
           </td>
@@ -611,7 +635,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-      setDefaultDateToToday();
+      setDefaultDateAndShift();
       openStoreModal();
     });
   </script>
