@@ -33,11 +33,21 @@
     <div class="bg-white p-5 rounded-xl shadow-md border border-slate-200 space-y-4 no-print">
       <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wider">📅 查詢條件設定</h2>
       
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
         <!-- 叫貨日期 selector -->
         <div>
           <label class="block text-xs font-bold text-slate-500 mb-1">叫貨日期</label>
           <input type="date" id="admin-date" onchange="fetchAdminData()" class="border-2 border-slate-200 p-2.5 rounded-xl w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none transition">
+        </div>
+
+        <!-- ⏰ 叫貨時段 selector -->
+        <div>
+          <label class="block text-xs font-bold text-slate-500 mb-1">叫貨時段</label>
+          <select id="admin-shift" onchange="renderAdminData()" class="border-2 border-slate-200 p-2.5 rounded-xl w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none transition">
+            <option value="">⏰ 全部品時段</option>
+            <option value="下午">☀️ 下午 (18:00前)</option>
+            <option value="打烊">🌙 打烊 (18:00後)</option>
+          </select>
         </div>
 
         <!-- 門市 selector -->
@@ -115,22 +125,49 @@
       }
     }
 
-    // 格式化時間 (月/日 HH:mm)
-    function formatTime(dateStr) {
-      if (!dateStr) return '-';
+    // 💡 叫貨時間與時段判斷式 (PM 6:00 / 18:00 基準)
+    function parseDateAndShift(dateStr, storeStr) {
+      if (!dateStr) return { date: '-', shiftName: '下午', shiftBadge: '' };
+
       const parts = dateStr.split(' ');
-      const datePart = parts[0].split('-');
+      const datePart = parts[0] || '';
       const timePart = parts[1] || '';
-      
-      if (datePart.length >= 3) {
-        return `${datePart[1]}/${datePart[2]} ${timePart}`;
+
+      // 1. 格式化日期為 月/日
+      let formattedDate = datePart;
+      const dParts = datePart.split('-');
+      if (dParts.length >= 3) {
+        formattedDate = `${dParts[1]}/${dParts[2]}`;
       }
-      return dateStr;
+
+      // 2. 判斷時段
+      let shiftName = '下午';
+      if ((storeStr && storeStr.includes('打烊')) || (dateStr && dateStr.includes('打烊'))) {
+        shiftName = '打烊';
+      } else if ((storeStr && storeStr.includes('下午')) || (dateStr && dateStr.includes('下午'))) {
+        shiftName = '下午';
+      } else if (timePart && timePart.includes(':')) {
+        const hour = parseInt(timePart.split(':')[0], 10);
+        if (!isNaN(hour)) {
+          shiftName = (hour >= 18) ? '打烊' : '下午';
+        }
+      }
+
+      // 3. 樣式標籤
+      let shiftBadge = '';
+      if (shiftName === '打烊') {
+        shiftBadge = '<span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full text-xs font-bold border border-purple-300 ml-1.5">打烊</span>';
+      } else {
+        shiftBadge = '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-xs font-bold border border-amber-300 ml-1.5">下午</span>';
+      }
+
+      return { date: formattedDate, timePart, shiftName, shiftBadge };
     }
 
     // 渲染資料
     function renderAdminData() {
       const selectedDate = document.getElementById('admin-date').value;
+      const selectedShift = document.getElementById('admin-shift').value;
       const selectedStore = document.getElementById('admin-store').value;
       const container = document.getElementById('admin-orders-container');
 
@@ -146,16 +183,27 @@
 
       // 2. 門市篩選
       if (selectedStore) {
-        filtered = filtered.filter(d => d.store === selectedStore);
+        filtered = filtered.filter(d => d.store && d.store.includes(selectedStore));
       }
 
-      document.getElementById('stat-total-count').innerText = `${filtered.length} 筆`;
+      // 預處理時段判斷
+      let preparedList = filtered.map(item => {
+        const parsed = parseDateAndShift(item.updatedAt, item.store);
+        return { ...item, parsed };
+      });
 
-      if (filtered.length === 0) {
+      // 3. 時段篩選 (下午 / 打烊)
+      if (selectedShift) {
+        preparedList = preparedList.filter(item => item.parsed.shiftName === selectedShift);
+      }
+
+      document.getElementById('stat-total-count').innerText = `${preparedList.length} 筆`;
+
+      if (preparedList.length === 0) {
         container.innerHTML = `
           <div class="bg-white p-12 rounded-xl text-center text-slate-400 shadow-sm border">
             <p class="text-lg font-bold">無此條件下的叫貨紀錄</p>
-            <p class="text-xs mt-1">請嘗試切換日期或門市進行查詢</p>
+            <p class="text-xs mt-1">請嘗試切換日期、時段或門市進行查詢</p>
           </div>
         `;
         return;
@@ -163,12 +211,15 @@
 
       // 按門市將資料分組
       const groupedByStore = {};
-      filtered.forEach(item => {
-        const storeName = item.store || '未指定門市';
-        if (!groupedByStore[storeName]) {
-          groupedByStore[storeName] = [];
+      preparedList.forEach(item => {
+        // 清理門市名稱標籤，僅顯示純門市名稱
+        let cleanStoreName = item.store || '未指定門市';
+        cleanStoreName = cleanStoreName.replace(/\(下午\)|\(打烊\)/g, '').trim();
+
+        if (!groupedByStore[cleanStoreName]) {
+          groupedByStore[cleanStoreName] = [];
         }
-        groupedByStore[storeName].push(item);
+        groupedByStore[cleanStoreName].push(item);
       });
 
       container.innerHTML = '';
@@ -187,7 +238,9 @@
               <span class="bg-slate-100 border text-slate-600 px-2 py-0.5 rounded">${item.category || '未分類'}</span>
             </td>
             <td class="p-3 text-center font-black text-indigo-600 text-base whitespace-nowrap">${item.quantity}</td>
-            <td class="p-3 text-center text-xs text-slate-400 whitespace-nowrap">${formatTime(item.updatedAt)}</td>
+            <td class="p-3 text-center text-xs text-slate-500 font-semibold whitespace-nowrap">
+              ${item.parsed.date} ${item.parsed.shiftBadge}
+            </td>
           </tr>
         `).join('');
 
@@ -209,7 +262,7 @@
                   <th class="p-3 whitespace-nowrap">品項名稱</th>
                   <th class="p-3 whitespace-nowrap">類別</th>
                   <th class="p-3 text-center whitespace-nowrap">叫貨數量</th>
-                  <th class="p-3 text-center whitespace-nowrap">時間</th>
+                  <th class="p-3 text-center whitespace-nowrap">叫貨日期與時段</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
