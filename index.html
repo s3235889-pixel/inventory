@@ -96,7 +96,7 @@
       </div>
     </details>
 
-    <!-- 區塊 2：點貨選擇區 (18:00前為下午，18:00後為打烊) -->
+    <!-- 區塊 2：點貨選擇區 -->
     <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
       <div class="flex flex-wrap justify-between items-center gap-2">
         <h2 class="text-lg font-semibold text-gray-700">1. 選擇商品放入購物車 (<span class="target-store-text font-bold text-indigo-700">--</span>)</h2>
@@ -209,20 +209,29 @@
       </div>
     </div>
 
-    <!-- 區塊 4：門市專屬歷史紀錄查詢區 -->
+    <!-- 區塊 4：門市專屬歷史紀錄查詢區 (支援日期與「時段」下拉篩選) -->
     <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
       <div class="border-b pb-3 flex flex-wrap justify-between items-center gap-3">
         <div>
           <h2 class="text-lg font-bold text-gray-800">🔍 3. 「<span class="target-store-text font-bold text-indigo-700">--</span>」專屬叫貨歷史紀錄</h2>
-          <p class="text-xs text-gray-400 mt-0.5">預設顯示本日叫貨，亦可清空日期查詢歷史紀錄</p>
+          <p class="text-xs text-gray-400 mt-0.5">預設顯示本日叫貨，可依日期、類別及時段獨立篩選</p>
         </div>
         <button onclick="loadAllData()" class="text-xs bg-gray-100 border px-3 py-1.5 rounded hover:bg-gray-200 flex items-center gap-1">🔄 重新整理資料</button>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-lg border">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 p-3 rounded-lg border">
         <div>
           <label class="block text-xs font-bold text-gray-600 mb-1">📅 選擇叫貨日期 (預設為今天)</label>
           <input type="date" id="filter-date" onchange="renderTable()" class="border p-2 rounded w-full text-sm bg-white">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-gray-600 mb-1">⏰ 篩選時段 (下午 / 打烊)</label>
+          <select id="filter-shift" onchange="renderTable()" class="border p-2 rounded w-full text-sm bg-white font-medium">
+            <option value="">全部時段</option>
+            <option value="下午">下午</option>
+            <option value="打烊">打烊</option>
+          </select>
         </div>
 
         <div>
@@ -239,7 +248,7 @@
             <tr class="bg-gray-100 text-left text-sm font-semibold text-gray-600 border-b">
               <th class="p-3 whitespace-nowrap">品項名稱</th>
               <th class="p-3 text-center whitespace-nowrap">叫貨數量</th>
-              <th class="p-3 text-center whitespace-nowrap">叫貨時間 / 時段</th>
+              <th class="p-3 text-center whitespace-nowrap">叫貨日期與時段</th>
               <th class="p-3 text-center whitespace-nowrap">操作</th>
             </tr>
           </thead>
@@ -269,7 +278,6 @@
     let inventoryData = [];
     let pendingQueue = [];
 
-    // 設定日期預設為今天，並依時間 (18:00) 自動選定「下午」或「打烊」
     function setDefaultDateAndShift() {
       const now = new Date();
       const today = now.toISOString().split('T')[0];
@@ -278,11 +286,10 @@
         filterDateInput.value = today;
       }
 
-      // 18:00 (含 17:59) 前預設「下午」，18:00 後預設「打烊」
       const hours = now.getHours();
       const shiftSelect = document.getElementById('work-shift-select');
       if (shiftSelect) {
-        shiftSelect.value = (hours < 18) ? '下午' : '打烊';
+        shiftSelect.value = (hours < 17) ? '下午' : '打烊';
       }
     }
 
@@ -514,7 +521,7 @@
         for (const item of pendingQueue) {
           const payload = {
             action: 'create',
-            store: `${currentActiveStore}`,
+            store: currentActiveStore,
             category: item.category,
             itemName: item.itemName,
             quantity: item.quantity,
@@ -540,48 +547,69 @@
       }
     }
 
-    function formatMonthDay(dateStr) {
-      if (!dateStr) return '-';
+    // 格式化日期與時段標籤
+    function formatMonthDayAndShift(dateStr) {
+      if (!dateStr) return { date: '-', shiftBadge: '' };
+      
       const parts = dateStr.split(' ')[0].split('-');
+      let dateFormatted = dateStr;
       if (parts.length >= 3) {
-        return `${parts[1]}/${parts[2]}`;
+        dateFormatted = `${parts[1]}/${parts[2]}`;
       }
-      return dateStr;
+
+      let shiftBadge = '';
+      if (dateStr.includes('下午')) {
+        shiftBadge = '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-xs font-bold border border-amber-300 ml-1.5">下午</span>';
+      } else if (dateStr.includes('打烊')) {
+        shiftBadge = '<span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full text-xs font-bold border border-purple-300 ml-1.5">打烊</span>';
+      } else {
+        shiftBadge = '<span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs font-medium border border-gray-300 ml-1.5">全天</span>';
+      }
+
+      return { date: dateFormatted, shiftBadge };
     }
 
+    // 歷史紀錄渲染（支援 日期、時段、類別 交叉過濾）
     function renderTable() {
       const tbody = document.getElementById('table-body');
       const filterDate = document.getElementById('filter-date').value;
+      const filterShift = document.getElementById('filter-shift').value;
       const filterCat = document.getElementById('filter-cat').value;
 
       tbody.innerHTML = '';
 
       let filteredData = inventoryData.filter(d => d.store === currentActiveStore);
 
+      // 1. 日期過濾
       if (filterDate) {
         filteredData = filteredData.filter(d => d.updatedAt && d.updatedAt.startsWith(filterDate));
       }
+      
+      // 2. 時段過濾 (下午 / 打烊)
+      if (filterShift) {
+        filteredData = filteredData.filter(d => d.updatedAt && d.updatedAt.includes(filterShift));
+      }
+
+      // 3. 類別過濾
       if (filterCat) {
         filteredData = filteredData.filter(d => d.category === filterCat);
       }
 
       if (!filteredData || filteredData.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">【${currentActiveStore}】查無符合條件的歷史叫貨紀錄</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">【${currentActiveStore}】查無符合條件的叫貨紀錄</td></tr>`;
         return;
       }
 
       filteredData.forEach(item => {
-        let shiftTag = '';
-        if (item.updatedAt && item.updatedAt.includes('下午')) shiftTag = '<span class="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[10px] ml-1 font-bold">下午</span>';
-        else if (item.updatedAt && item.updatedAt.includes('打烊')) shiftTag = '<span class="bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded text-[10px] ml-1 font-bold">打烊</span>';
+        const { date, shiftBadge } = formatMonthDayAndShift(item.updatedAt);
 
         const tr = document.createElement('tr');
         tr.className = 'hover:bg-gray-50';
         tr.innerHTML = `
           <td class="p-3 font-medium text-gray-800 whitespace-nowrap">${item.itemName}</td>
           <td class="p-3 text-center font-bold text-blue-600 whitespace-nowrap">${item.quantity}</td>
-          <td class="p-3 text-center text-gray-500 text-xs font-semibold whitespace-nowrap">
-            ${formatMonthDay(item.updatedAt)} ${shiftTag}
+          <td class="p-3 text-center text-gray-600 text-xs font-semibold whitespace-nowrap">
+            ${date} ${shiftBadge}
           </td>
           <td class="p-3 text-center whitespace-nowrap">
             <button onclick="deleteItem('${item.id}')" class="bg-red-500 text-white px-2.5 py-1 rounded text-xs hover:bg-red-600 shadow-sm">刪除</button>
