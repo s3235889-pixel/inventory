@@ -155,7 +155,7 @@
       </div>
     </div>
 
-    <!-- 區塊 3：購物車預覽區 (已更換為顯眼紅色按鈕) -->
+    <!-- 區塊 3：購物車預覽區 -->
     <div class="bg-amber-50/60 border-2 border-amber-300 p-6 rounded-xl shadow-sm space-y-4">
       <div class="flex flex-wrap justify-between items-center gap-2">
         <div class="flex items-center gap-2">
@@ -169,7 +169,6 @@
           <button onclick="clearQueue()" id="btn-clear-queue" class="text-xs bg-white text-gray-600 hover:text-red-600 px-3 py-2 rounded border border-gray-300 transition hidden">
             🗑️ 清空購物車
           </button>
-          <!-- 顯眼的紅色確定送出按鈕 -->
           <button onclick="submitBatch()" id="btn-submit-batch" class="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg font-bold shadow-md shadow-red-200 transition disabled:opacity-40 disabled:hover:bg-red-600" disabled>
             🚀 盤點確定送出
           </button>
@@ -192,19 +191,19 @@
       </div>
     </div>
 
-    <!-- 區塊 4：門市專屬歷史紀錄查詢區 -->
+    <!-- 區塊 4：門市專屬歷史紀錄查詢區 (預設帶入今天日期) -->
     <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
       <div class="border-b pb-3 flex flex-wrap justify-between items-center gap-3">
         <div>
           <h2 class="text-lg font-bold text-gray-800">🔍 3. 「<span class="target-store-text font-bold text-indigo-700">--</span>」專屬叫貨歷史紀錄</h2>
-          <p class="text-xs text-gray-400 mt-0.5">系統已自動屏蔽其他分店之資料，避免誤觸刪除</p>
+          <p class="text-xs text-gray-400 mt-0.5">預設顯示本日叫貨，亦可清空日期查詢歷史紀錄</p>
         </div>
         <button onclick="loadAllData()" class="text-xs bg-gray-100 border px-3 py-1.5 rounded hover:bg-gray-200 flex items-center gap-1">🔄 重新整理資料</button>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-lg border">
         <div>
-          <label class="block text-xs font-bold text-gray-600 mb-1">📅 選擇叫貨日期</label>
+          <label class="block text-xs font-bold text-gray-600 mb-1">📅 選擇叫貨日期 (預設為今天)</label>
           <input type="date" id="filter-date" onchange="renderTable()" class="border p-2 rounded w-full text-sm bg-white">
         </div>
 
@@ -252,6 +251,15 @@
     let inventoryData = [];
     let pendingQueue = [];
 
+    // 設定日期輸入框預設為今天 (yyyy-MM-dd)
+    function setDefaultDateToToday() {
+      const today = new Date().toISOString().split('T')[0];
+      const filterDateInput = document.getElementById('filter-date');
+      if (filterDateInput && !filterDateInput.value) {
+        filterDateInput.value = today;
+      }
+    }
+
     function openStoreModal() {
       if (pendingQueue.length > 0) {
         if (!confirm('切換門市將會清空目前購物車未送出的暫存項目，確定要切換嗎？')) {
@@ -288,6 +296,8 @@
       document.getElementById('store-modal').classList.add('hidden');
       document.getElementById('store-password-input').value = '';
 
+      // 載入資料時同步確認預設今天日期
+      setDefaultDateToToday();
       loadAllData();
     }
 
@@ -508,6 +518,7 @@
 
       let filteredData = inventoryData.filter(d => d.store === currentActiveStore);
 
+      // 依日期條件篩選 (包含預設的當天日期)
       if (filterDate) {
         filteredData = filteredData.filter(d => d.updatedAt && d.updatedAt.startsWith(filterDate));
       }
@@ -579,6 +590,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+      setDefaultDateToToday();
       openStoreModal();
     });
   </script>
