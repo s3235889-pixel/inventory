@@ -115,36 +115,31 @@
           </select>
         </div>
 
-        <!-- 僅限正整數的混合選單 -->
+        <!-- 下拉式選擇盤點數量 (1-20) -->
         <div>
-          <label class="block text-xs font-bold text-gray-500 mb-1">盤點數量 (僅限輸入正整數)</label>
-          <input 
-            type="number" 
-            id="item-qty" 
-            list="qty-options" 
-            placeholder="選擇/輸入整數" 
-            class="border p-2 rounded w-full bg-white" 
-            min="1" 
-            step="1" 
-            oninput="this.value = this.value.replace(/[^0-9]/g, '');"
-          >
-          <datalist id="qty-options">
-            <option value="1"></option>
-            <option value="2"></option>
-            <option value="3"></option>
-            <option value="4"></option>
-            <option value="5"></option>
-            <option value="6"></option>
-            <option value="7"></option>
-            <option value="8"></option>
-            <option value="9"></option>
-            <option value="10"></option>
-            <option value="11"></option>
-            <option value="12"></option>
-            <option value="13"></option>
-            <option value="14"></option>
-            <option value="15"></option>
-          </datalist>
+          <label class="block text-xs font-bold text-gray-500 mb-1">盤點數量</label>
+          <select id="item-qty" class="border p-2 rounded w-full bg-white font-medium">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="10">10</option>
+            <option value="11">11</option>
+            <option value="12">12</option>
+            <option value="13">13</option>
+            <option value="14">14</option>
+            <option value="15">15</option>
+            <option value="16">16</option>
+            <option value="17">17</option>
+            <option value="18">18</option>
+            <option value="19">19</option>
+            <option value="20">20</option>
+          </select>
         </div>
 
         <div class="flex items-end">
@@ -251,7 +246,6 @@
     let inventoryData = [];
     let pendingQueue = [];
 
-    // 設定日期輸入框預設為今天 (yyyy-MM-dd)
     function setDefaultDateToToday() {
       const today = new Date().toISOString().split('T')[0];
       const filterDateInput = document.getElementById('filter-date');
@@ -296,7 +290,6 @@
       document.getElementById('store-modal').classList.add('hidden');
       document.getElementById('store-password-input').value = '';
 
-      // 載入資料時同步確認預設今天日期
       setDefaultDateToToday();
       loadAllData();
     }
@@ -393,11 +386,6 @@
         return;
       }
 
-      if (quantity === '' || Number(quantity) <= 0 || !Number.isInteger(Number(quantity))) {
-        alert('請輸入或選擇大於 0 的正整數數量！');
-        return;
-      }
-
       const existingIndex = pendingQueue.findIndex(q => q.itemName === itemName && q.category === category);
       if (existingIndex > -1) {
         pendingQueue[existingIndex].quantity = quantity;
@@ -405,8 +393,18 @@
         pendingQueue.push({ category, itemName, quantity });
       }
 
-      document.getElementById('item-qty').value = '';
+      // 放入購物車後重置數量選擇為 1
+      document.getElementById('item-qty').value = "1";
       renderQueueTable();
+    }
+
+    // 產生購物車內 1~20 的下拉選項
+    function generateQtyOptionsHTML(selectedQty) {
+      let options = '';
+      for (let i = 1; i <= 20; i++) {
+        options += `<option value="${i}" ${Number(selectedQty) === i ? 'selected' : ''}>${i}</option>`;
+      }
+      return options;
     }
 
     function renderQueueTable() {
@@ -434,7 +432,9 @@
         tr.innerHTML = `
           <td class="p-3 font-medium text-gray-800 whitespace-nowrap">${item.itemName}</td>
           <td class="p-3">
-            <input type="number" step="1" min="1" value="${item.quantity}" oninput="this.value=this.value.replace(/[^0-9]/g,'')" onchange="updateQueueQty(${index}, this.value)" class="border px-2 py-1 rounded w-20 text-amber-900 font-bold bg-white text-center">
+            <select onchange="updateQueueQty(${index}, this.value)" class="border px-2 py-1 rounded w-20 text-amber-900 font-bold bg-white text-center cursor-pointer">
+              ${generateQtyOptionsHTML(item.quantity)}
+            </select>
           </td>
           <td class="p-3 text-center">
             <button onclick="removeFromQueue(${index})" class="text-red-500 hover:text-red-700 text-xs bg-red-50 px-2 py-1 rounded border border-red-200">移除</button>
@@ -445,9 +445,7 @@
     }
 
     function updateQueueQty(index, newQty) {
-      if (newQty !== '' && Number(newQty) > 0) {
-        pendingQueue[index].quantity = Math.floor(Number(newQty));
-      }
+      pendingQueue[index].quantity = newQty;
     }
 
     function removeFromQueue(index) {
@@ -518,7 +516,6 @@
 
       let filteredData = inventoryData.filter(d => d.store === currentActiveStore);
 
-      // 依日期條件篩選 (包含預設的當天日期)
       if (filterDate) {
         filteredData = filteredData.filter(d => d.updatedAt && d.updatedAt.startsWith(filterDate));
       }
