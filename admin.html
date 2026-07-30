@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>連鎖總部叫貨後台管理系統</title>
+  <title>門市與時段叫貨單統計系統</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @media print {
@@ -16,45 +16,45 @@
 <body class="bg-slate-100 p-4 md:p-6 min-h-screen">
   <div class="max-w-5xl mx-auto space-y-6">
     
-    <!-- 頁首標題 (列印時隱藏) -->
+    <!-- 頂部標題區塊 -->
     <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-lg flex flex-wrap justify-between items-center gap-4 no-print">
       <div>
         <h1 class="text-2xl font-bold flex items-center gap-2">
-          📊 連鎖總部叫貨後台管理系統
+          📊 門市與時段叫貨單統計系統
         </h1>
-        <p class="text-xs text-slate-300 mt-1">調閱與統計各分店每日叫貨單總表</p>
+        <p class="text-xs text-slate-300 mt-1">支援依「下午」與「打烊」時段精準下拉篩選</p>
       </div>
       <button onclick="window.print()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2.5 rounded-xl transition flex items-center gap-1.5 shadow-md">
-        🖨️ 列印 / 匯出叫貨單
+        🖨️ 列印叫貨總表
       </button>
     </div>
 
-    <!-- 查詢控制面板 (列印時隱藏) -->
+    <!-- 下拉篩選控制面板 (關鍵核心) -->
     <div class="bg-white p-5 rounded-xl shadow-md border border-slate-200 space-y-4 no-print">
-      <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wider">📅 查詢條件設定</h2>
+      <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider">🔍 下拉篩選條件設定</h2>
       
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <!-- 叫貨日期 selector -->
+        <!-- 1. 日期篩選器 -->
         <div>
-          <label class="block text-xs font-bold text-slate-500 mb-1">叫貨日期</label>
-          <input type="date" id="admin-date" onchange="fetchAdminData()" class="border-2 border-slate-200 p-2.5 rounded-xl w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none transition">
+          <label class="block text-xs font-bold text-slate-600 mb-1">📅 選擇日期</label>
+          <input type="date" id="filter-date" onchange="renderData()" class="border-2 border-slate-200 p-2 rounded-xl w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none transition">
         </div>
 
-        <!-- ⏰ 叫貨時段 selector -->
+        <!-- 2. 時段下拉篩選器 (下午 / 打烊) -->
         <div>
-          <label class="block text-xs font-bold text-slate-500 mb-1">叫貨時段</label>
-          <select id="admin-shift" onchange="renderAdminData()" class="border-2 border-slate-200 p-2.5 rounded-xl w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none transition">
-            <option value="">⏰ 全部品時段</option>
-            <option value="下午">☀️ 下午 (18:00前)</option>
-            <option value="打烊">🌙 打烊 (18:00後)</option>
+          <label class="block text-xs font-bold text-slate-600 mb-1">⏰ 叫貨時段篩選</label>
+          <select id="filter-shift" onchange="renderData()" class="border-2 border-slate-200 p-2 rounded-xl w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none transition cursor-pointer">
+            <option value="">全部時段 (下午 + 打烊)</option>
+            <option value="下午">☀️ 下午時段 (18:00前)</option>
+            <option value="打烊">🌙 打烊時段 (18:00後)</option>
           </select>
         </div>
 
-        <!-- 門市 selector -->
+        <!-- 3. 門市下拉篩選器 -->
         <div>
-          <label class="block text-xs font-bold text-slate-500 mb-1">目標門市</label>
-          <select id="admin-store" onchange="renderAdminData()" class="border-2 border-slate-200 p-2.5 rounded-xl w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none transition">
-            <option value="">🏪 全部門市</option>
+          <label class="block text-xs font-bold text-slate-600 mb-1">🏪 選擇門市</label>
+          <select id="filter-store" onchange="renderData()" class="border-2 border-slate-200 p-2 rounded-xl w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-none transition cursor-pointer">
+            <option value="">全部門市</option>
             <option value="萬丹店">萬丹店</option>
             <option value="潮州店">潮州店</option>
             <option value="屏東店">屏東店</option>
@@ -66,8 +66,8 @@
 
         <!-- 重新整理按鈕 -->
         <div class="flex items-end">
-          <button onclick="fetchAdminData()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold p-2.5 rounded-xl border border-slate-300 transition text-sm flex justify-center items-center gap-1">
-            🔄 重新讀取雲端資料
+          <button onclick="fetchCloudData()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold p-2.5 rounded-xl border border-slate-300 transition text-sm flex justify-center items-center gap-1">
+            🔄 重新整理
           </button>
         </div>
       </div>
@@ -76,21 +76,21 @@
     <!-- 數據概覽卡片 -->
     <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
       <div class="bg-white p-4 rounded-xl border shadow-sm">
-        <p class="text-xs font-bold text-slate-400">目前調閱門市</p>
-        <p id="stat-store-name" class="text-lg font-black text-slate-800 mt-1">全部門市</p>
+        <p class="text-xs font-bold text-slate-400">當前門市條件</p>
+        <p id="stat-store-display" class="text-lg font-black text-slate-800 mt-1">全部門市</p>
       </div>
       <div class="bg-white p-4 rounded-xl border shadow-sm">
-        <p class="text-xs font-bold text-slate-400">當日叫貨總筆數</p>
-        <p id="stat-total-count" class="text-2xl font-black text-indigo-600 mt-1">0 筆</p>
+        <p class="text-xs font-bold text-slate-400">當前時段條件</p>
+        <p id="stat-shift-display" class="text-lg font-black text-indigo-600 mt-1">全部時段</p>
       </div>
       <div class="bg-white p-4 rounded-xl border shadow-sm col-span-2 md:col-span-1">
-        <p class="text-xs font-bold text-slate-400">叫貨日期</p>
-        <p id="stat-date-display" class="text-lg font-black text-slate-800 mt-1">-</p>
+        <p class="text-xs font-bold text-slate-400">叫貨總筆數</p>
+        <p id="stat-count-display" class="text-2xl font-black text-amber-600 mt-1">0 筆</p>
       </div>
     </div>
 
-    <!-- 叫貨紀錄清單容器 (動態渲染) -->
-    <div id="admin-orders-container" class="space-y-6">
+    <!-- 叫貨紀錄結果區塊 (動態渲染) -->
+    <div id="data-container" class="space-y-6">
       <div class="bg-white p-8 rounded-xl text-center text-slate-400 shadow-sm">
         資料載入中...
       </div>
@@ -101,47 +101,48 @@
   <script>
     const API_URL = 'https://script.google.com/macros/s/AKfycbxiblsuljzndWVVMCbHOMekJqIKlshKcprpO6SS7i8PMTHnLojT1B4LXjutB_IEb3dVoQ/exec';
 
-    let rawAllInventory = [];
+    let rawData = [];
 
-    // 初始化：設為今天日期並發送請求
+    // 初始化頁面
     document.addEventListener('DOMContentLoaded', () => {
       const today = new Date().toISOString().split('T')[0];
-      document.getElementById('admin-date').value = today;
-      fetchAdminData();
+      document.getElementById('filter-date').value = today;
+      fetchCloudData();
     });
 
-    // 從後端拉取全部盤點叫貨資料
-    async function fetchAdminData() {
-      const container = document.getElementById('admin-orders-container');
-      container.innerHTML = '<div class="bg-white p-8 rounded-xl text-center text-slate-400 shadow-sm">正在從雲端抓取叫貨紀錄...</div>';
+    // 從雲端 API 抓取資料
+    async function fetchCloudData() {
+      const container = document.getElementById('data-container');
+      container.innerHTML = '<div class="bg-white p-8 rounded-xl text-center text-slate-400 shadow-sm">正在獲取最新叫貨紀錄...</div>';
 
       try {
         const res = await fetch(`${API_URL}?t=${Date.now()}`);
         const result = await res.json();
-        rawAllInventory = result.data || [];
-        renderAdminData();
+        rawData = result.data || [];
+        renderData();
       } catch (err) {
         container.innerHTML = '<div class="bg-white p-8 rounded-xl text-center text-red-500 shadow-sm">資料載入失敗，請檢查網路連線。</div>';
       }
     }
 
-    // 💡 叫貨時間與時段判斷式 (PM 6:00 / 18:00 基準)
-    function parseDateAndShift(dateStr, storeStr) {
-      if (!dateStr) return { date: '-', shiftName: '下午', shiftBadge: '' };
+    // 時間與時段判斷式 (以 PM 6:00 / 18:00 為劃分點)
+    function parseShiftInfo(dateStr, storeStr) {
+      if (!dateStr) return { dateFormatted: '-', shiftName: '下午', badgeHtml: '' };
 
       const parts = dateStr.split(' ');
       const datePart = parts[0] || '';
       const timePart = parts[1] || '';
 
-      // 1. 格式化日期為 月/日
-      let formattedDate = datePart;
+      // 格式化日期：07/30
+      let dateFormatted = datePart;
       const dParts = datePart.split('-');
       if (dParts.length >= 3) {
-        formattedDate = `${dParts[1]}/${dParts[2]}`;
+        dateFormatted = `${dParts[1]}/${dParts[2]}`;
       }
 
-      // 2. 判斷時段
+      // 判斷時段
       let shiftName = '下午';
+
       if ((storeStr && storeStr.includes('打烊')) || (dateStr && dateStr.includes('打烊'))) {
         shiftName = '打烊';
       } else if ((storeStr && storeStr.includes('下午')) || (dateStr && dateStr.includes('下午'))) {
@@ -149,34 +150,34 @@
       } else if (timePart && timePart.includes(':')) {
         const hour = parseInt(timePart.split(':')[0], 10);
         if (!isNaN(hour)) {
-          shiftName = (hour >= 18) ? '打烊' : '下午';
+          shiftName = (hour >= 18) ? '打烊' : '下午'; // 18:00 後視為打烊
         }
       }
 
-      // 3. 樣式標籤
-      let shiftBadge = '';
+      // 標籤樣式
+      let badgeHtml = '';
       if (shiftName === '打烊') {
-        shiftBadge = '<span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full text-xs font-bold border border-purple-300 ml-1.5">打烊</span>';
+        badgeHtml = '<span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full text-xs font-bold border border-purple-300 ml-1.5">打烊</span>';
       } else {
-        shiftBadge = '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-xs font-bold border border-amber-300 ml-1.5">下午</span>';
+        badgeHtml = '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-xs font-bold border border-amber-300 ml-1.5">下午</span>';
       }
 
-      return { date: formattedDate, timePart, shiftName, shiftBadge };
+      return { dateFormatted, shiftName, badgeHtml };
     }
 
-    // 渲染資料
-    function renderAdminData() {
-      const selectedDate = document.getElementById('admin-date').value;
-      const selectedShift = document.getElementById('admin-shift').value;
-      const selectedStore = document.getElementById('admin-store').value;
-      const container = document.getElementById('admin-orders-container');
+    // 依下拉條件渲染與篩選資料
+    function renderData() {
+      const selectedDate = document.getElementById('filter-date').value;
+      const selectedShift = document.getElementById('filter-shift').value;
+      const selectedStore = document.getElementById('filter-store').value;
+      const container = document.getElementById('data-container');
 
-      // 更新統計卡片資訊
-      document.getElementById('stat-store-name').innerText = selectedStore || '全部門市';
-      document.getElementById('stat-date-display').innerText = selectedDate || '未指定日期';
+      // 更新概覽資訊
+      document.getElementById('stat-store-display').innerText = selectedStore || '全部門市';
+      document.getElementById('stat-shift-display').innerText = selectedShift ? `${selectedShift}時段` : '全部時段';
 
       // 1. 日期篩選
-      let filtered = rawAllInventory;
+      let filtered = rawData;
       if (selectedDate) {
         filtered = filtered.filter(d => d.updatedAt && d.updatedAt.startsWith(selectedDate));
       }
@@ -186,9 +187,9 @@
         filtered = filtered.filter(d => d.store && d.store.includes(selectedStore));
       }
 
-      // 預處理時段判斷
+      // 解析每筆紀錄的時段名稱
       let preparedList = filtered.map(item => {
-        const parsed = parseDateAndShift(item.updatedAt, item.store);
+        const parsed = parseShiftInfo(item.updatedAt, item.store);
         return { ...item, parsed };
       });
 
@@ -197,22 +198,21 @@
         preparedList = preparedList.filter(item => item.parsed.shiftName === selectedShift);
       }
 
-      document.getElementById('stat-total-count').innerText = `${preparedList.length} 筆`;
+      document.getElementById('stat-count-display').innerText = `${preparedList.length} 筆`;
 
       if (preparedList.length === 0) {
         container.innerHTML = `
           <div class="bg-white p-12 rounded-xl text-center text-slate-400 shadow-sm border">
-            <p class="text-lg font-bold">無此條件下的叫貨紀錄</p>
-            <p class="text-xs mt-1">請嘗試切換日期、時段或門市進行查詢</p>
+            <p class="text-lg font-bold">無符合篩選條件的叫貨紀錄</p>
+            <p class="text-xs mt-1">請調整日期、時段或門市再試一次</p>
           </div>
         `;
         return;
       }
 
-      // 按門市將資料分組
+      // 按門市將資料分組顯示
       const groupedByStore = {};
       preparedList.forEach(item => {
-        // 清理門市名稱標籤，僅顯示純門市名稱
         let cleanStoreName = item.store || '未指定門市';
         cleanStoreName = cleanStoreName.replace(/\(下午\)|\(打烊\)/g, '').trim();
 
@@ -224,7 +224,7 @@
 
       container.innerHTML = '';
 
-      // 遍歷門市繪製區塊
+      // 繪製卡片與表格
       Object.keys(groupedByStore).forEach(store => {
         const storeOrders = groupedByStore[store];
         const storeCard = document.createElement('div');
@@ -239,7 +239,7 @@
             </td>
             <td class="p-3 text-center font-black text-indigo-600 text-base whitespace-nowrap">${item.quantity}</td>
             <td class="p-3 text-center text-xs text-slate-500 font-semibold whitespace-nowrap">
-              ${item.parsed.date} ${item.parsed.shiftBadge}
+              ${item.parsed.dateFormatted} ${item.parsed.badgeHtml}
             </td>
           </tr>
         `).join('');
@@ -250,7 +250,7 @@
               🏪 ${store}
             </h3>
             <span class="bg-indigo-500/30 text-indigo-200 text-xs font-bold px-2.5 py-1 rounded-full border border-indigo-400/30">
-              共 ${storeOrders.length} 項品項
+              小計 ${storeOrders.length} 筆項目
             </span>
           </div>
 
