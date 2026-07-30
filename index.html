@@ -96,21 +96,33 @@
       </div>
     </details>
 
-    <!-- 區塊 2：點貨選擇區 -->
-    <div class="bg-white p-6 rounded-xl shadow-md">
-      <h2 class="text-lg font-semibold mb-4 text-gray-700">1. 選擇商品放入購物車 (<span class="target-store-text font-bold text-indigo-700">--</span>)</h2>
+    <!-- 區塊 2：點貨選擇區 (已加入關鍵字搜尋功能) -->
+    <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
+      <h2 class="text-lg font-semibold text-gray-700">1. 選擇商品放入購物車 (<span class="target-store-text font-bold text-indigo-700">--</span>)</h2>
       
+      <!-- 🔍 關鍵字搜尋欄位 -->
+      <div>
+        <label class="block text-xs font-bold text-gray-600 mb-1">🔎 關鍵字快速搜尋商品</label>
+        <input 
+          type="text" 
+          id="item-search-input" 
+          oninput="filterItemDropdown()" 
+          placeholder="輸入商品名稱關鍵字 (例如: 豚骨、高湯、麵...)" 
+          class="border p-2.5 rounded-lg w-full bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition text-sm"
+        >
+      </div>
+
       <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
         <div>
           <label class="block text-xs font-bold text-gray-500 mb-1">依類別篩選</label>
-          <select id="item-cat" onchange="filterItemDropdown()" class="border p-2 rounded w-full bg-gray-50">
+          <select id="item-cat" onchange="filterItemDropdown()" class="border p-2 rounded w-full bg-gray-50 text-sm">
             <option value="">全部類別</option>
           </select>
         </div>
 
         <div>
           <label class="block text-xs font-bold text-gray-500 mb-1">選擇商品</label>
-          <select id="item-name-select" class="border p-2 rounded w-full">
+          <select id="item-name-select" class="border p-2 rounded w-full text-sm">
             <option value="">請先驗證並進入門市...</option>
           </select>
         </div>
@@ -118,7 +130,7 @@
         <!-- 下拉式選擇盤點數量 (1-20) -->
         <div>
           <label class="block text-xs font-bold text-gray-500 mb-1">盤點數量</label>
-          <select id="item-qty" class="border p-2 rounded w-full bg-white font-medium">
+          <select id="item-qty" class="border p-2 rounded w-full bg-white font-medium text-sm">
             <option value="1">1</option>
             <option value="2">2</option>
             <option value="3">3</option>
@@ -143,7 +155,7 @@
         </div>
 
         <div class="flex items-end">
-          <button onclick="addToQueue()" class="bg-amber-500 text-white px-4 py-2 rounded w-full hover:bg-amber-600 font-medium h-[42px] shadow flex justify-center items-center gap-1">
+          <button onclick="addToQueue()" class="bg-amber-500 text-white px-4 py-2 rounded w-full hover:bg-amber-600 font-medium h-[42px] shadow flex justify-center items-center gap-1 text-sm">
             🛒 放入暫存購物車
           </button>
         </div>
@@ -355,23 +367,34 @@
       }
     }
 
+    // 依類別與關鍵字動態過濾商品選單
     function filterItemDropdown() {
       const selectedCat = document.getElementById('item-cat').value;
+      const searchKeyword = (document.getElementById('item-search-input')?.value || '').trim().toLowerCase();
       const itemSelect = document.getElementById('item-name-select');
 
-      const storeItems = rawCatalog.filter(i => (i.store === currentActiveStore || !i.store) && i.itemName);
+      // 1. 門市過濾
+      let storeItems = rawCatalog.filter(i => (i.store === currentActiveStore || !i.store) && i.itemName);
 
-      const filtered = selectedCat 
-        ? storeItems.filter(i => i.category === selectedCat)
-        : storeItems;
+      // 2. 類別過濾
+      if (selectedCat) {
+        storeItems = storeItems.filter(i => i.category === selectedCat);
+      }
 
-      if (filtered.length === 0) {
-        itemSelect.innerHTML = `<option value="">-- 【${currentActiveStore}】尚無專屬商品 --</option>`;
+      // 3. 關鍵字過濾
+      if (searchKeyword) {
+        storeItems = storeItems.filter(i => i.itemName.toLowerCase().includes(searchKeyword));
+      }
+
+      if (storeItems.length === 0) {
+        itemSelect.innerHTML = searchKeyword 
+          ? `<option value="">-- 查無包含「${searchKeyword}」的商品 --</option>`
+          : `<option value="">-- 【${currentActiveStore}】尚無專屬商品 --</option>`;
         return;
       }
 
       itemSelect.innerHTML = '<option value="">-- 請選擇商品 --</option>' +
-        filtered.map(i => `<option value="${i.itemName}" data-cat="${i.category}">${i.itemName}</option>`).join('');
+        storeItems.map(i => `<option value="${i.itemName}" data-cat="${i.category}">${i.itemName}</option>`).join('');
     }
 
     function addToQueue() {
@@ -393,12 +416,13 @@
         pendingQueue.push({ category, itemName, quantity });
       }
 
-      // 放入購物車後重置數量選擇為 1
+      // 放入購物車後重置數量選擇為 1，並清空搜尋框
       document.getElementById('item-qty').value = "1";
+      document.getElementById('item-search-input').value = "";
+      filterItemDropdown(); // 恢復完整列表
       renderQueueTable();
     }
 
-    // 產生購物車內 1~20 的下拉選項
     function generateQtyOptionsHTML(selectedQty) {
       let options = '';
       for (let i = 1; i <= 20; i++) {
