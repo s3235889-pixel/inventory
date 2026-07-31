@@ -1,14 +1,19 @@
+這就為您將字體大小的拉桿預設值改為 16px！
+💡 調整細節：
+ * 預設字級動態變數：CSS 中的 --custom-font-size 初始化預設改為 16px。
+ * 控制拉桿 DOM 狀態：拉桿 input 的 value 改為 16，提示文字同步更新為 16px。
+📄 修改後的完整 HTML 程式碼：
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>門市叫貨總表 (A4橫向6欄可放大至30px版)</title>
+  <title>門市叫貨總表 (A4橫向6欄預設16px版)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style id="dynamic-font-style">
-    /* 動態字級變數預設值 */
+    /* 動態字級變數：預設修改為 16px */
     :root {
-      --custom-font-size: 10px;
+      --custom-font-size: 16px;
     }
   </style>
   <style>
@@ -71,7 +76,7 @@
         <h1 class="text-xl font-bold flex items-center gap-2">
           📊 門市叫貨總表 (A4 橫向 6 欄版)
         </h1>
-        <p class="text-xs text-slate-300 mt-1">6 間門市並排單頁設計，支援最高 30px 字級放大縮放</p>
+        <p class="text-xs text-slate-300 mt-1">6 間門市並排單頁設計，預設字級 16px (支援最高 30px 放大)</p>
       </div>
       <button onclick="window.print()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md">
         🖨️ 列印 6 欄 A4 總表
@@ -112,13 +117,13 @@
           </select>
         </div>
 
-        <!-- 4. 文字大小調整拉桿 (範圍修改為 8px - 30px) -->
+        <!-- 4. 文字大小調整拉桿 (預設值改為 16px) -->
         <div class="bg-indigo-50/60 p-2 rounded-lg border border-indigo-100">
           <div class="flex justify-between items-center mb-1">
-            <label class="text-xs font-bold text-indigo-900">🔤 文字大小 (最高 30px)</label>
-            <span id="font-size-val" class="text-xs font-black text-indigo-600">10px</span>
+            <label class="text-xs font-bold text-indigo-900">🔤 文字大小</label>
+            <span id="font-size-val" class="text-xs font-black text-indigo-600">16px</span>
           </div>
-          <input type="range" id="font-size-range" min="8" max="30" value="10" step="0.5" oninput="adjustFontSize(this.value)" class="w-full accent-indigo-600 cursor-pointer">
+          <input type="range" id="font-size-range" min="8" max="30" value="16" step="0.5" oninput="adjustFontSize(this.value)" class="w-full accent-indigo-600 cursor-pointer">
         </div>
 
         <!-- 5. 重新整理 -->
@@ -171,7 +176,7 @@
       fetchCloudData();
     });
 
-    // 動態調整文字大小控制 (最大支援至 30px)
+    // 動態調整文字大小控制
     function adjustFontSize(val) {
       document.getElementById('font-size-val').innerText = `${val}px`;
       document.documentElement.style.setProperty('--custom-font-size', `${val}px`);
@@ -315,3 +320,4 @@
   </script>
 </body>
 </html>
+
