@@ -12,10 +12,11 @@
     }
   </style>
   <style>
-    /* 避免印出空白第二頁的關鍵 CSS 鎖定 */
+    /* 允許手機與網頁正常上下捲動 */
     html, body {
-      height: 100%;
-      overflow: hidden;
+      min-height: 100%;
+      overflow-x: hidden;
+      overflow-y: auto; /* 允許垂直滾動 */
     }
 
     /* A4 橫向 6 欄專用列印樣式 */
@@ -26,7 +27,7 @@
       }
       html, body {
         height: auto !important;
-        overflow: visible !important;
+        overflow: hidden !important; /* 僅在列印時鎖定避免跑出空白第二頁 */
         background-color: white !important;
         padding: 0 !important;
         margin: 0 !important;
@@ -77,7 +78,7 @@
   </style>
 </head>
 <body class="bg-slate-100 p-4 min-h-screen">
-  <div class="max-w-[1400px] mx-auto space-y-3 print-area">
+  <div class="max-w-[1400px] mx-auto space-y-3 print-area pb-12">
     
     <!-- 頂部控制區塊 (線上顯示) -->
     <div class="bg-slate-900 text-white p-4 rounded-2xl shadow-lg flex flex-wrap justify-between items-center gap-4 no-print">
@@ -157,7 +158,7 @@
       </div>
     </div>
 
-    <!-- 6 門市數據容器 (6 欄網格 Layout) -->
+    <!-- 6 門市數據容器 (網格 Layout) -->
     <div id="data-container" class="print-grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
       <div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border">
         資料載入中...
@@ -263,12 +264,10 @@
       // 3. 彙總資料 (雙向模糊比對門市名稱)
       preparedList.forEach(item => {
         let rawStore = item.store || '';
-        
-        // 清理店名括號後比對 (例如 "萬丹店(下午)" 提取出 "萬丹店")
         let cleanRawStore = rawStore.replace(/\(下午\)|\(打烊\)/g, '').trim();
 
         let matchedStore = TARGET_STORES.find(target => {
-          let cleanTarget = target.split('(')[0].trim(); // 提取出 "萬丹店"
+          let cleanTarget = target.split('(')[0].trim();
           return cleanRawStore.includes(cleanTarget) || cleanTarget.includes(cleanRawStore);
         });
         
@@ -281,7 +280,6 @@
             storeDataMap[matchedStore][itemName] = { qty, category };
           } else {
             storeDataMap[matchedStore][itemName].qty += qty;
-            // 若之前未抓到類別，補上類別
             if (!storeDataMap[matchedStore][itemName].category && category) {
               storeDataMap[matchedStore][itemName].category = category;
             }
@@ -296,19 +294,18 @@
         displayStores = TARGET_STORES.filter(s => s === selectedStore);
       }
 
-      // 4. 渲染卡片 (優化置頂排序 logic)
+      // 4. 渲染卡片 (置頂排序)
       displayStores.forEach(storeName => {
         const itemsObj = storeDataMap[storeName] || {};
         let itemNames = Object.keys(itemsObj);
 
-        // 🌟 核心排序：將「甜品冷藏食材」排在最上面
         itemNames.sort((a, b) => {
           const isAPriority = isPriorityCategory(itemsObj[a].category);
           const isBPriority = isPriorityCategory(itemsObj[b].category);
 
-          if (isAPriority && !isBPriority) return -1; // a 置頂
-          if (!isAPriority && isBPriority) return 1;  // b 置頂
-          return 0; // 保留原順序
+          if (isAPriority && !isBPriority) return -1;
+          if (!isAPriority && isBPriority) return 1;
+          return 0;
         });
 
         const storeCard = document.createElement('div');
@@ -321,8 +318,6 @@
           rowsHtml = itemNames.map((itemName, idx) => {
             const itemData = itemsObj[itemName];
             const isPriority = isPriorityCategory(itemData.category);
-            
-            // 優先類別在線上加深背景與字體醒目，列印時維持乾淨白底
             const rowClass = isPriority ? 'bg-amber-100/70 print:bg-transparent font-black text-amber-950' : '';
 
             return `
@@ -362,4 +357,3 @@
   </script>
 </body>
 </html>
-
