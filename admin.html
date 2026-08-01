@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>門市叫貨總表 (A4橫向單頁12px版)</title>
+  <title>門市叫貨總表 (甜品冷藏食材優先置頂版)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style id="dynamic-font-style">
-    /* 動態字級變數：預設修改為 12px */
+    /* 動態字級變數：預設為 12px */
     :root {
       --custom-font-size: 12px;
     }
@@ -83,9 +83,9 @@
     <div class="bg-slate-900 text-white p-4 rounded-2xl shadow-lg flex flex-wrap justify-between items-center gap-4 no-print">
       <div>
         <h1 class="text-xl font-bold flex items-center gap-2">
-          📊 門市叫貨總表 (A4 橫向 6 欄版)
+          📊 門市叫貨總表 (甜品冷藏食材優先版)
         </h1>
-        <p class="text-xs text-slate-300 mt-1">6 間門市並排單頁設計，預設字級 12px (絕不產生空白第二頁)</p>
+        <p class="text-xs text-slate-300 mt-1">6 間門市並排單頁設計，「甜品冷藏食材類別」自動置頂排序</p>
       </div>
       <button onclick="window.print()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md">
         🖨️ 列印 6 欄 A4 總表
@@ -126,7 +126,7 @@
           </select>
         </div>
 
-        <!-- 4. 文字大小調整拉桿 (預設值改為 12px) -->
+        <!-- 4. 文字大小調整拉桿 (預設 12px) -->
         <div class="bg-indigo-50/60 p-2 rounded-lg border border-indigo-100">
           <div class="flex justify-between items-center mb-1">
             <label class="text-xs font-bold text-indigo-900">🔤 文字大小</label>
@@ -171,6 +171,9 @@
     
     // 強制設定的 6 間門市
     const TARGET_STORES = ['萬丹店', '潮州店', '屏東店', '仁愛店', '木崎', '東港店'];
+
+    // 優先排序類別名稱
+    const PRIORITY_CATEGORY = '甜品冷藏食材類別';
 
     let rawData = [];
 
@@ -253,7 +256,7 @@
       const storeDataMap = {};
       TARGET_STORES.forEach(store => storeDataMap[store] = {});
 
-      // 3. 彙總資料
+      // 3. 彙總資料 (保存品項名稱、加總數量與類別資訊)
       preparedList.forEach(item => {
         let rawStore = item.store || '';
         let matchedStore = TARGET_STORES.find(s => rawStore.includes(s));
@@ -261,10 +264,12 @@
         if (matchedStore) {
           const itemName = item.itemName || '未知名稱';
           const qty = parseInt(item.quantity, 10) || 0;
+          const category = item.category || '';
+
           if (!storeDataMap[matchedStore][itemName]) {
-            storeDataMap[matchedStore][itemName] = qty;
+            storeDataMap[matchedStore][itemName] = { qty, category };
           } else {
-            storeDataMap[matchedStore][itemName] += qty;
+            storeDataMap[matchedStore][itemName].qty += qty;
           }
         }
       });
@@ -276,10 +281,23 @@
         displayStores = TARGET_STORES.filter(s => s === selectedStore);
       }
 
-      // 4. 渲染卡片
+      // 4. 渲染卡片 (含「甜品冷藏食材類別」優先排序)
       displayStores.forEach(storeName => {
         const itemsObj = storeDataMap[storeName] || {};
-        const itemNames = Object.keys(itemsObj);
+        let itemNames = Object.keys(itemsObj);
+
+        // 🌟 核心排序 logic: 將屬於 PRIORITY_CATEGORY 的品項排在最前面
+        itemNames.sort((a, b) => {
+          const catA = itemsObj[a].category || '';
+          const catB = itemsObj[b].category || '';
+
+          const isAPriority = catA.includes(PRIORITY_CATEGORY);
+          const isBPriority = catB.includes(PRIORITY_CATEGORY);
+
+          if (isAPriority && !isBPriority) return -1; // a 排在前面
+          if (!isAPriority && isBPriority) return 1;  // b 排在前面
+          return 0; // 保留原順序
+        });
 
         const storeCard = document.createElement('div');
         storeCard.className = 'print-card bg-white rounded border border-slate-300 overflow-hidden shadow-sm flex flex-col justify-between';
@@ -288,13 +306,21 @@
         if (itemNames.length === 0) {
           rowsHtml = `<tr><td colspan="3" class="text-center text-slate-400 py-2">無叫貨紀錄</td></tr>`;
         } else {
-          rowsHtml = itemNames.map((itemName, idx) => `
-            <tr class="border-b last:border-0 border-slate-200">
-              <td class="text-center text-slate-400">${idx + 1}</td>
-              <td class="font-bold text-slate-800 break-all">${itemName}</td>
-              <td class="text-right font-black text-indigo-700 pr-1">${itemsObj[itemName]}</td>
-            </tr>
-          `).join('');
+          rowsHtml = itemNames.map((itemName, idx) => {
+            const itemData = itemsObj[itemName];
+            const isPriority = itemData.category && itemData.category.includes(PRIORITY_CATEGORY);
+            
+            // 如果屬於優先類別，可在線上預覽加深背景以醒目標示 (列印時維持清晰乾淨)
+            const rowClass = isPriority ? 'bg-amber-50/60 print:bg-transparent font-black' : '';
+
+            return `
+              <tr class="border-b last:border-0 border-slate-200 ${rowClass}">
+                <td class="text-center text-slate-400">${idx + 1}</td>
+                <td class="font-bold text-slate-800 break-all">${itemName}</td>
+                <td class="text-right font-black text-indigo-700 pr-1">${itemData.qty}</td>
+              </tr>
+            `;
+          }).join('');
         }
 
         storeCard.innerHTML = `
