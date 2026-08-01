@@ -1,28 +1,38 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>門市叫貨總表 (A4橫向6欄預設16px版)</title>
+  <title>門市叫貨總表 (A4橫向單頁12px版)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style id="dynamic-font-style">
-    /* 動態字級變數：預設修改為 16px */
+    /* 動態字級變數：預設修改為 12px */
     :root {
-      --custom-font-size: 16px;
+      --custom-font-size: 12px;
     }
   </style>
   <style>
+    /* 避免印出空白第二頁的關鍵 CSS 鎖定 */
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+
     /* A4 橫向 6 欄專用列印樣式 */
     @media print {
       @page {
         size: A4 landscape;
-        margin: 4mm 4mm 4mm 4mm;
+        margin: 3mm 4mm 3mm 4mm; /* 極簡邊界，充份利用版面 */
       }
-      body {
+      html, body {
+        height: auto !important;
+        overflow: visible !important;
         background-color: white !important;
         padding: 0 !important;
+        margin: 0 !important;
         color: #0f172a !important;
+        page-break-after: avoid !important;
+        break-after: avoid !important;
       }
       .no-print {
         display: none !important;
@@ -31,22 +41,25 @@
         width: 100% !important;
         max-width: none !important;
         margin: 0 !important;
+        padding: 0 !important;
       }
       .print-grid {
         display: grid !important;
         grid-template-columns: repeat(6, minmax(0, 1fr)) !important; /* 強制 A4 橫向 6 欄 */
         gap: 3px !important;
+        page-break-inside: avoid !important;
       }
       .print-card {
-        break-inside: avoid;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
         border: 1px solid #475569 !important;
         box-shadow: none !important;
-        border-radius: 4px !important;
+        border-radius: 3px !important;
       }
       .print-header {
         border-bottom: 2px solid #0f172a !important;
         padding-bottom: 2px !important;
-        margin-bottom: 4px !important;
+        margin-bottom: 3px !important;
       }
     }
 
@@ -54,8 +67,8 @@
     .dynamic-text-table th, 
     .dynamic-text-table td {
       font-size: var(--custom-font-size) !important;
-      padding: calc(var(--custom-font-size) * 0.15 + 1px) calc(var(--custom-font-size) * 0.2 + 1px) !important;
-      line-height: 1.15 !important;
+      padding: calc(var(--custom-font-size) * 0.12 + 1px) calc(var(--custom-font-size) * 0.15 + 1px) !important;
+      line-height: 1.1 !important;
     }
     
     .dynamic-store-title {
@@ -64,7 +77,7 @@
   </style>
 </head>
 <body class="bg-slate-100 p-4 min-h-screen">
-  <div class="max-w-[1400px] mx-auto space-y-4 print-area">
+  <div class="max-w-[1400px] mx-auto space-y-3 print-area">
     
     <!-- 頂部控制區塊 (線上顯示) -->
     <div class="bg-slate-900 text-white p-4 rounded-2xl shadow-lg flex flex-wrap justify-between items-center gap-4 no-print">
@@ -72,7 +85,7 @@
         <h1 class="text-xl font-bold flex items-center gap-2">
           📊 門市叫貨總表 (A4 橫向 6 欄版)
         </h1>
-        <p class="text-xs text-slate-300 mt-1">6 間門市並排單頁設計，預設字級 16px (支援最高 30px 放大)</p>
+        <p class="text-xs text-slate-300 mt-1">6 間門市並排單頁設計，預設字級 12px (絕不產生空白第二頁)</p>
       </div>
       <button onclick="window.print()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md">
         🖨️ 列印 6 欄 A4 總表
@@ -113,13 +126,13 @@
           </select>
         </div>
 
-        <!-- 4. 文字大小調整拉桿 (預設值改為 16px) -->
+        <!-- 4. 文字大小調整拉桿 (預設值改為 12px) -->
         <div class="bg-indigo-50/60 p-2 rounded-lg border border-indigo-100">
           <div class="flex justify-between items-center mb-1">
             <label class="text-xs font-bold text-indigo-900">🔤 文字大小</label>
-            <span id="font-size-val" class="text-xs font-black text-indigo-600">16px</span>
+            <span id="font-size-val" class="text-xs font-black text-indigo-600">12px</span>
           </div>
-          <input type="range" id="font-size-range" min="8" max="30" value="16" step="0.5" oninput="adjustFontSize(this.value)" class="w-full accent-indigo-600 cursor-pointer">
+          <input type="range" id="font-size-range" min="8" max="30" value="12" step="0.5" oninput="adjustFontSize(this.value)" class="w-full accent-indigo-600 cursor-pointer">
         </div>
 
         <!-- 5. 重新整理 -->
@@ -135,7 +148,7 @@
     <!-- 列印抬頭 (A4 頁首) -->
     <div class="print-header flex justify-between items-end pb-1 border-b-2 border-slate-800">
       <div>
-        <h2 class="text-lg font-black text-slate-900">📊 各門市叫貨統計總表 (6門市一頁總表)</h2>
+        <h2 class="text-base font-black text-slate-900">📊 各門市叫貨統計總表 (6門市一頁總表)</h2>
         <p class="text-[10px] text-slate-500">列印時間：<span id="print-timestamp"></span></p>
       </div>
       <div class="text-right text-[11px] text-slate-700">
@@ -149,11 +162,6 @@
       <div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border">
         資料載入中...
       </div>
-    </div>
-
-    <!-- 頁腳簽收區 (僅列印時顯示) -->
-    <div class="hidden print:block text-right text-[10px] text-slate-500 mt-1 pt-1 border-t border-dashed border-slate-300">
-      揀貨確認簽名：____________________ │ 出貨確認：____________________
     </div>
 
   </div>
@@ -291,7 +299,7 @@
 
         storeCard.innerHTML = `
           <div>
-            <div class="bg-slate-800 text-white px-2 py-1 flex justify-between items-center print:bg-slate-900">
+            <div class="bg-slate-800 text-white px-1.5 py-0.5 flex justify-between items-center print:bg-slate-900">
               <span class="font-bold dynamic-store-title truncate">🏪 ${storeName}</span>
               <span class="text-[9px] bg-slate-700 px-1 rounded text-slate-200">${itemNames.length}項</span>
             </div>
@@ -316,4 +324,3 @@
   </script>
 </body>
 </html>
-
