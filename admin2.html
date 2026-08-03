@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>門市叫貨總表 (甜品冷藏食材優先置頂版)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style id="dynamic-font-style">
+    /* 動態字級變數：預設為 12px */
+    :root {
+      --custom-font-size: 12px;
+    }
+  </style>
+  <style>
+    /* 允許手機與網頁正常上下捲動 */
+    html, body {
+      min-height: 100%;
+      overflow-x: hidden;
+      overflow-y: auto; /* 允許垂直滾動 */
+    }
+
+    /* =========================================================
+       1. 預設 A4 橫向 6 欄專用列印樣式
+       ========================================================= */
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 3mm 4mm 3mm 4mm; /* 極簡邊界 */
+      }
+      html, body {
+        height: auto !important;
+        overflow: hidden !important;
+        background-color: white !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        color: #0f172a !important;
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .print-area {
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .print-grid {
+        display: grid !important;
+        grid-template-columns: repeat(6, minmax(0, 1fr)) !important; /* 強制 A4 橫向 6 欄 */
+        gap: 3px !important;
+        page-break-inside: avoid !important;
+      }
+      .print-card {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        border: 1px solid #475569 !important;
+        box-shadow: none !important;
+        border-radius: 3px !important;
+      }
+      .print-header {
+        border-bottom: 2px solid #0f172a !important;
+        padding-bottom: 2px !important;
+        margin-bottom: 3px !important;
+      }
+    }
+
+    /* =========================================================
+       2. 80mm 熱感應印表機 / 出單機專用列印樣式 (透過 Class 切換)
+       ========================================================= */
+    @media print {
+      body.print-mode-80mm {
+        font-size: 12px !important;
+      }
+      
+      body.print-mode-80mm @page {
+        size: 80mm auto; /* 寬度 80mm，高度自動延伸 */
+        margin: 2mm !important;
+      }
+
+      body.print-mode-80mm .print-area {
+        width: 72mm !important; /* 扣除邊界後的列印寬度 */
+        margin: 0 auto !important;
+      }
+
+      body.print-mode-80mm .print-header {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        border-bottom: 2px dashed #000 !important;
+        padding-bottom: 4px !important;
+        margin-bottom: 8px !important;
+      }
+
+      body.print-mode-80mm .print-header h2 {
+        font-size: 14px !important;
+      }
+
+      body.print-mode-80mm .print-grid {
+        display: flex !important;
+        flex-direction: column !important; /* 單欄連續垂直排列 */
+        gap: 12px !important;
+      }
+
+      body.print-mode-80mm .print-card {
+        border: 1px solid #000 !important;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        margin-bottom: 6px !important;
+      }
+
+      body.print-mode-80mm .dynamic-text-table th, 
+      body.print-mode-80mm .dynamic-text-table td {
+        font-size: 11px !important;
+        padding: 3px 2px !important;
+      }
+    }
+
+    /* 套用自訂動態字級 (縮放範圍 8px~30px) */
+    .dynamic-text-table th, 
+    .dynamic-text-table td {
+      font-size: var(--custom-font-size) !important;
+      padding: calc(var(--custom-font-size) * 0.12 + 1px) calc(var(--custom-font-size) * 0.15 + 1px) !important;
+      line-height: 1.1 !important;
+    }
+    
+    .dynamic-store-title {
+      font-size: calc(var(--custom-font-size) * 1.05) !important;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 p-4 min-h-screen">
+  <div class="max-w-[1400px] mx-auto space-y-3 print-area pb-12">
+    
+    <!-- 頂部控制區塊 (線上顯示) -->
+    <div class="bg-slate-900 text-white p-4 rounded-2xl shadow-lg flex flex-wrap justify-between items-center gap-4 no-print">
+      <div>
+        <h1 class="text-xl font-bold flex items-center gap-2">
+          📊 門市叫貨總表 (甜品冷藏食材優先版)
+        </h1>
+        <p class="text-xs text-slate-300 mt-1">6 間門市並排單頁設計，「甜品冷藏食材」類別自動置頂排序</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button onclick="printA4()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md">
+          🖨️ 列印 A4 (6欄總表)
+        </button>
+        <button onclick="print80mm()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md">
+          🧾 列印 80mm 單據
+        </button>
+      </div>
+    </div>
+
+    <!-- 下拉篩選與文字大小控制面板 -->
+    <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3 no-print">
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 items-center">
+        
+        <!-- 1. 日期篩選 -->
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">📅 選擇日期</label>
+          <input type="date" id="filter-date" onchange="renderData()" class="border p-2 rounded-lg w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
+        </div>
+
+        <!-- 2. 時段篩選 -->
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">⏰ 叫貨時段</label>
+          <select id="filter-shift" onchange="renderData()" class="border p-2 rounded-lg w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
+            <option value="">全部時段 (下午 + 打烊)</option>
+            <option value="下午">☀️ 下午時段</option>
+            <option value="打烊">🌙 打烊時段</option>
+          </select>
+        </div>
+
+        <!-- 3. 門市過濾 -->
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">🏪 門市快速過濾</label>
+          <select id="filter-store" onchange="renderData()" class="border p-2 rounded-lg w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
+            <option value="">顯示全部 6 店</option>
+            <option value="萬丹店(W)">萬丹店(W)</option>
+            <option value="潮州店(C1)">潮州店(C1)</option>
+            <option value="屏東店(P1)">屏東店(P1)</option>
+            <option value="仁愛店(P2)">仁愛店(P2)</option>
+            <option value="木崎(C2)">木崎(C2)</option>
+            <option value="東港店(D)">東港店(D)</option>
+          </select>
+        </div>
+
+        <!-- 4. 文字大小調整拉桿 (預設 12px) -->
+        <div class="bg-indigo-50/60 p-2 rounded-lg border border-indigo-100">
+          <div class="flex justify-between items-center mb-1">
+            <label class="text-xs font-bold text-indigo-900">🔤 文字大小</label>
+            <span id="font-size-val" class="text-xs font-black text-indigo-600">12px</span>
+          </div>
+          <input type="range" id="font-size-range" min="8" max="30" value="12" step="0.5" oninput="adjustFontSize(this.value)" class="w-full accent-indigo-600 cursor-pointer">
+        </div>
+
+        <!-- 5. 重新整理 -->
+        <div class="flex items-end">
+          <button onclick="fetchCloudData()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold p-2 rounded-lg border transition text-sm flex justify-center items-center gap-1">
+            🔄 重新整理
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 列印抬頭 (A4 / 80mm 頁首) -->
+    <div class="print-header flex justify-between items-end pb-1 border-b-2 border-slate-800">
+      <div>
+        <h2 class="text-base font-black text-slate-900">📊 各門市叫貨統計總表</h2>
+        <p class="text-[10px] text-slate-500">列印時間：<span id="print-timestamp"></span></p>
+      </div>
+      <div class="text-right text-[11px] text-slate-700">
+        <span><strong>查詢日期：</strong><span id="summary-date">-</span></span> │ 
+        <span><strong>時段條件：</strong><span id="summary-shift">全部時段</span></span>
+      </div>
+    </div>
+
+    <!-- 6 門市數據容器 (網格 Layout) -->
+    <div id="data-container" class="print-grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+      <div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border">
+        資料載入中...
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const API_URL = 'https://script.google.com/macros/s/AKfycbxiblsuljzndWVVMCbHOMekJqIKlshKcprpO6SS7i8PMTHnLojT1B4LXjutB_IEb3dVoQ/exec';
+    
+    // 強制設定的 6 間門市顯示名稱
+    const TARGET_STORES = ['萬丹店(W)', '潮州店(C1)', '屏東店(P1)', '仁愛店(P2)', '木崎(C2)', '東港店(D)'];
+
+    let rawData = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const today = new Date().toISOString().split('T')[0];
+      document.getElementById('filter-date').value = today;
+      fetchCloudData();
+    });
+
+    // A4 列印觸發
+    function printA4() {
+      document.body.classList.remove('print-mode-80mm');
+      window.print();
+    }
+
+    // 80mm 出單機列印觸發
+    function print80mm() {
+      document.body.classList.add('print-mode-80mm');
+      window.print();
+      // 列印結束後清除標籤，以免影響預設畫面
+      setTimeout(() => {
+        document.body.classList.remove('print-mode-80mm');
+      }, 1000);
+    }
+
+    // 動態調整文字大小控制
+    function adjustFontSize(val) {
+      document.getElementById('font-size-val').innerText = `${val}px`;
+      document.documentElement.style.setProperty('--custom-font-size', `${val}px`);
+    }
+
+    function updateTimestamp() {
+      const now = new Date();
+      document.getElementById('print-timestamp').innerText = now.toLocaleString('zh-TW', { hour12: false });
+    }
+
+    async function fetchCloudData() {
+      const container = document.getElementById('data-container');
+      container.innerHTML = '<div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border">正在獲取最新叫貨紀錄...</div>';
+
+      try {
+        const res = await fetch(`${API_URL}?t=${Date.now()}`);
+        const result = await res.json();
+        rawData = result.data || [];
+        renderData();
+      } catch (err) {
+        container.innerHTML = '<div class="col-span-full bg-white p-8 rounded-xl text-center text-red-500 border">資料載入失敗，請檢查網路連線。</div>';
+      }
+    }
+
+    function parseShiftInfo(dateStr, storeStr) {
+      if (!dateStr) return { shiftName: '下午' };
+      const parts = dateStr.split(' ');
+      const timePart = parts[1] || '';
+
+      let shiftName = '下午';
+      if ((storeStr && storeStr.includes('打烊')) || (dateStr && dateStr.includes('打烊'))) {
+        shiftName = '打烊';
+      } else if ((storeStr && storeStr.includes('下午')) || (dateStr && dateStr.includes('下午'))) {
+        shiftName = '下午';
+      } else if (timePart && timePart.includes(':')) {
+        const hour = parseInt(timePart.split(':')[0], 10);
+        if (!isNaN(hour)) {
+          shiftName = (hour >= 18) ? '打烊' : '下午';
+        }
+      }
+      return { shiftName };
+    }
+
+    // 判斷是否屬於優先置頂類別（甜品冷藏食材）
+    function isPriorityCategory(categoryStr) {
+      if (!categoryStr) return false;
+      const cleanCat = String(categoryStr).trim();
+      return cleanCat.includes('甜品') || cleanCat.includes('冷藏');
+    }
+
+    function renderData() {
+      updateTimestamp();
+      const selectedDate = document.getElementById('filter-date').value;
+      const selectedShift = document.getElementById('filter-shift').value;
+      const selectedStore = document.getElementById('filter-store').value;
+      const container = document.getElementById('data-container');
+
+      document.getElementById('summary-date').innerText = selectedDate || '全部日期';
+      document.getElementById('summary-shift').innerText = selectedShift ? `${selectedShift}時段` : '全部時段';
+
+      // 1. 篩選資料
+      let filtered = rawData;
+      if (selectedDate) {
+        filtered = filtered.filter(d => d.updatedAt && d.updatedAt.startsWith(selectedDate));
+      }
+
+      let preparedList = filtered.map(item => {
+        const parsed = parseShiftInfo(item.updatedAt, item.store);
+        return { ...item, parsed };
+      });
+
+      if (selectedShift) {
+        preparedList = preparedList.filter(item => item.parsed.shiftName === selectedShift);
+      }
+
+      // 2. 初始化 6 間門市結構
+      const storeDataMap = {};
+      TARGET_STORES.forEach(store => storeDataMap[store] = {});
+
+      // 3. 彙總資料 (雙向模糊比對門市名稱)
+      preparedList.forEach(item => {
+        let rawStore = item.store || '';
+        let cleanRawStore = rawStore.replace(/\(下午\)|\(打烊\)/g, '').trim();
+
+        let matchedStore = TARGET_STORES.find(target => {
+          let cleanTarget = target.split('(')[0].trim();
+          return cleanRawStore.includes(cleanTarget) || cleanTarget.includes(cleanRawStore);
+        });
+        
+        if (matchedStore) {
+          const itemName = item.itemName || '未知名稱';
+          const qty = parseInt(item.quantity, 10) || 0;
+          const category = item.category || '';
+
+          if (!storeDataMap[matchedStore][itemName]) {
+            storeDataMap[matchedStore][itemName] = { qty, category };
+          } else {
+            storeDataMap[matchedStore][itemName].qty += qty;
+            if (!storeDataMap[matchedStore][itemName].category && category) {
+              storeDataMap[matchedStore][itemName].category = category;
+            }
+          }
+        }
+      });
+
+      container.innerHTML = '';
+
+      let displayStores = TARGET_STORES;
+      if (selectedStore) {
+        displayStores = TARGET_STORES.filter(s => s === selectedStore);
+      }
+
+      // 4. 渲染卡片 (置頂排序)
+      displayStores.forEach(storeName => {
+        const itemsObj = storeDataMap[storeName] || {};
+        let itemNames = Object.keys(itemsObj);
+
+        itemNames.sort((a, b) => {
+          const isAPriority = isPriorityCategory(itemsObj[a].category);
+          const isBPriority = isPriorityCategory(itemsObj[b].category);
+
+          if (isAPriority && !isBPriority) return -1;
+          if (!isAPriority && isBPriority) return 1;
+          return 0;
+        });
+
+        const storeCard = document.createElement('div');
+        storeCard.className = 'print-card bg-white rounded border border-slate-300 overflow-hidden shadow-sm flex flex-col justify-between';
+
+        let rowsHtml = '';
+        if (itemNames.length === 0) {
+          rowsHtml = `<tr><td colspan="3" class="text-center text-slate-400 py-2">無叫貨紀錄</td></tr>`;
+        } else {
+          rowsHtml = itemNames.map((itemName, idx) => {
+            const itemData = itemsObj[itemName];
+            const isPriority = isPriorityCategory(itemData.category);
+            const rowClass = isPriority ? 'bg-amber-100/70 print:bg-transparent font-black text-amber-950' : '';
+
+            return `
+              <tr class="border-b last:border-0 border-slate-200 ${rowClass}">
+                <td class="text-center text-slate-400">${idx + 1}</td>
+                <td class="font-bold text-slate-800 break-all">${itemName}</td>
+                <td class="text-right font-black text-indigo-700 pr-1">${itemData.qty}</td>
+              </tr>
+            `;
+          }).join('');
+        }
+
+        storeCard.innerHTML = `
+          <div>
+            <div class="bg-slate-800 text-white px-1.5 py-0.5 flex justify-between items-center print:bg-slate-900">
+              <span class="font-bold dynamic-store-title truncate">🏪 ${storeName}</span>
+              <span class="text-[9px] bg-slate-700 px-1 rounded text-slate-200">${itemNames.length}項</span>
+            </div>
+            <table class="dynamic-text-table w-full text-left">
+              <thead>
+                <tr class="bg-slate-100 text-slate-600 border-b border-slate-300 font-bold">
+                  <th class="text-center w-4">#</th>
+                  <th>品項名稱</th>
+                  <th class="text-right pr-1 w-8">數量</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+        `;
+
+        container.appendChild(storeCard);
+      });
+    }
+  </script>
+</body>
+</html>
