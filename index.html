@@ -239,7 +239,7 @@ class="border p-2.5 rounded-lg w-full bg-slate-50 focus:bg-white focus:ring-2 fo
 </div>
 
 <script>
-const API_URL = 'https://script.google.com/macros/s/AKfycbxXWnitm1MvZiu0QWQqB8w2ql1E6pYl_Xsv4gUnqVySsoFu9cRaWI6GhbZdvw2PCtoPmQ/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbzqKn1AapFVjIg8XFj-OMFNt79CQ9ErGrLNaUQnox7hTHvdKopckr4BHfCC15jGpO1c/exec';
 
 const STORE_PASSWORDS = {
 '萬丹店(W)': '1101',
@@ -278,7 +278,7 @@ function fetchJSONP(url) {
     script.onerror = function() {
       delete window[callbackName];
       if (document.body.contains(script)) document.body.removeChild(script);
-      reject(new Error('JSONP 連線失敗，請確認 GAS 部署狀態。'));
+      reject(new Error('JSONP 連線失敗，請檢查 GAS 部署狀態。'));
     };
     document.body.appendChild(script);
   });
@@ -352,15 +352,16 @@ function confirmStoreSelection() {
   loadAllData();
 }
 
-// ⚡ 核心優化：開頁時一次性初始化拿回 Catalog + 當日紀錄 (節省 1 次連線)
+// ⚡ 核心優化：發送特定「門市」與「日期」，只拉取該門市當天資料
 async function loadAllData() {
   if (!currentActiveStore) return;
   const tbody = document.getElementById('table-body');
   const targetDate = document.getElementById('filter-date').value;
-  tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">極速初始化載入中...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">載入【${currentActiveStore}】當日紀錄中...</td></tr>`;
 
   try {
-    const result = await fetchJSONP(`${API_URL}?action=init&date=${targetDate}&t=${Date.now()}`);
+    const storeParam = encodeURIComponent(currentActiveStore);
+    const result = await fetchJSONP(`${API_URL}?action=init&store=${storeParam}&date=${targetDate}&t=${Date.now()}`);
     if (result.status === 'success') {
       rawCatalog = result.catalog || [];
       inventoryData = result.inventory || [];
@@ -385,13 +386,15 @@ async function fetchCatalog() {
   } catch (err) {}
 }
 
+// ⚡ 僅讀取當前門市特定日期資料
 async function fetchData() {
   const tbody = document.getElementById('table-body');
   const targetDate = document.getElementById('filter-date').value;
-  tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">載入【${targetDate}】門市紀錄中...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">載入【${currentActiveStore}】(${targetDate}) 紀錄中...</td></tr>`;
 
   try {
-    const result = await fetchJSONP(`${API_URL}?date=${targetDate}&t=${Date.now()}`);
+    const storeParam = encodeURIComponent(currentActiveStore);
+    const result = await fetchJSONP(`${API_URL}?store=${storeParam}&date=${targetDate}&t=${Date.now()}`);
     if (result.status === 'error') {
       tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500 font-bold">後端異常：${result.message}</td></tr>`;
       return;
@@ -584,7 +587,7 @@ function renderTable() {
 
   tbody.innerHTML = '';
 
-  let filteredData = inventoryData.filter(d => d.store && d.store.includes(currentActiveStore));
+  let filteredData = inventoryData; // 已在後端過濾好門市
 
   if (filterDate) filteredData = filteredData.filter(d => d.updatedAt && d.updatedAt.startsWith(filterDate));
   if (filterCat) filteredData = filteredData.filter(d => d.category === filterCat);
