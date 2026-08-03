@@ -186,14 +186,20 @@ class="border p-2.5 rounded-lg w-full bg-slate-50 focus:bg-white focus:ring-2 fo
 </div>
 </div>
 
-<!-- 區塊 4：歷史紀錄查詢區 -->
+<!-- 區塊 4：歷史紀錄查詢區 (含批量勾選刪除功能) -->
 <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
 <div class="border-b pb-3 flex flex-wrap justify-between items-center gap-3">
 <div>
 <h2 class="text-lg font-bold text-gray-800">🔍 3. 「<span class="target-store-text font-bold text-indigo-700">--</span>」專屬叫貨歷史紀錄</h2>
 <p class="text-xs text-gray-400 mt-0.5">預設極速讀取當日紀錄，切換日期可加載指定歷史資料</p>
 </div>
-<button onclick="fetchData()" class="text-xs bg-gray-100 border px-3 py-1.5 rounded hover:bg-gray-200 flex items-center gap-1">🔄 重新整理資料</button>
+<div class="flex items-center gap-2">
+<!-- 🗑️ 動態跳出的批量刪除按鈕 -->
+<button id="btn-batch-delete" onclick="deleteSelectedItems()" class="text-xs bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-2 rounded-lg shadow transition hidden flex items-center gap-1">
+🗑️ 批量刪除 (0)
+</button>
+<button onclick="fetchData()" class="text-xs bg-gray-100 border px-3 py-2 rounded-lg hover:bg-gray-200 flex items-center gap-1">🔄 重新整理資料</button>
+</div>
 </div>
 
 <div class="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 p-3 rounded-lg border">
@@ -223,6 +229,10 @@ class="border p-2.5 rounded-lg w-full bg-slate-50 focus:bg-white focus:ring-2 fo
 <table class="min-w-full border-collapse border border-gray-200">
 <thead>
 <tr class="bg-gray-100 text-left text-sm font-semibold text-gray-600 border-b">
+<!-- 🔳 標頭全選勾選框 -->
+<th class="p-3 text-center w-10 whitespace-nowrap">
+<input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAll(this.checked)" class="w-4 h-4 text-indigo-600 rounded cursor-pointer">
+</th>
 <th class="p-3 whitespace-nowrap">品項名稱</th>
 <th class="p-3 text-center whitespace-nowrap">叫貨數量</th>
 <th class="p-3 text-center whitespace-nowrap">叫貨日期與時段</th>
@@ -230,7 +240,7 @@ class="border p-2.5 rounded-lg w-full bg-slate-50 focus:bg-white focus:ring-2 fo
 </tr>
 </thead>
 <tbody id="table-body" class="divide-y divide-gray-200 text-sm text-gray-700">
-<tr><td colspan="4" class="p-4 text-center text-gray-400">資料載入中...</td></tr>
+<tr><td colspan="5" class="p-4 text-center text-gray-400">資料載入中...</td></tr>
 </tbody>
 </table>
 </div>
@@ -239,7 +249,7 @@ class="border p-2.5 rounded-lg w-full bg-slate-50 focus:bg-white focus:ring-2 fo
 </div>
 
 <script>
-const API_URL = 'https://script.google.com/macros/s/AKfycbzqKn1AapFVjIg8XFj-OMFNt79CQ9ErGrLNaUQnox7hTHvdKopckr4BHfCC15jGpO1c/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwjJD_wd0yV72ZhV4PSxG6z33n_zTKJEhSK8R4xgsu00UgWvkHf7qqOOUI_CesNRdyHwQ/exec';
 
 const STORE_PASSWORDS = {
 '萬丹店(W)': '1101',
@@ -352,12 +362,11 @@ function confirmStoreSelection() {
   loadAllData();
 }
 
-// ⚡ 核心優化：發送特定「門市」與「日期」，只拉取該門市當天資料
 async function loadAllData() {
   if (!currentActiveStore) return;
   const tbody = document.getElementById('table-body');
   const targetDate = document.getElementById('filter-date').value;
-  tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">載入【${currentActiveStore}】當日紀錄中...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-400">極速初始化載入中...</td></tr>`;
 
   try {
     const storeParam = encodeURIComponent(currentActiveStore);
@@ -369,11 +378,11 @@ async function loadAllData() {
       filterItemDropdown();
       renderTable();
     } else {
-      tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500 font-bold">初始化失敗：${result.message}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500 font-bold">初始化失敗：${result.message}</td></tr>`;
     }
   } catch (err) {
     console.error(err);
-    tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500 font-bold">載入失敗，請檢查網路連線。</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500 font-bold">載入失敗，請檢查網路連線。</td></tr>`;
   }
 }
 
@@ -386,24 +395,23 @@ async function fetchCatalog() {
   } catch (err) {}
 }
 
-// ⚡ 僅讀取當前門市特定日期資料
 async function fetchData() {
   const tbody = document.getElementById('table-body');
   const targetDate = document.getElementById('filter-date').value;
-  tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">載入【${currentActiveStore}】(${targetDate}) 紀錄中...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-400">載入【${currentActiveStore}】(${targetDate}) 紀錄中...</td></tr>`;
 
   try {
     const storeParam = encodeURIComponent(currentActiveStore);
     const result = await fetchJSONP(`${API_URL}?store=${storeParam}&date=${targetDate}&t=${Date.now()}`);
     if (result.status === 'error') {
-      tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500 font-bold">後端異常：${result.message}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500 font-bold">後端異常：${result.message}</td></tr>`;
       return;
     }
     inventoryData = result.data || [];
     renderTable();
   } catch (err) {
     console.error(err);
-    tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500 font-bold">載入失敗，請確認 GAS 部署為「建立新版本」。</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500 font-bold">載入失敗，請確認 GAS 部署為「建立新版本」。</td></tr>`;
   }
 }
 
@@ -579,6 +587,67 @@ function parseDateAndShift(dateStr, storeStr) {
   return { date: formattedDate, shiftName, shiftBadge };
 }
 
+// 🔲 控制全選/取消全選
+function toggleSelectAll(isChecked) {
+  const checkboxes = document.querySelectorAll('.history-checkbox');
+  checkboxes.forEach(cb => cb.checked = isChecked);
+  updateBatchDeleteButtonState();
+}
+
+// 🔲 動態更新批量刪除按鈕狀態
+function updateBatchDeleteButtonState() {
+  const checkedCbs = document.querySelectorAll('.history-checkbox:checked');
+  const batchBtn = document.getElementById('btn-batch-delete');
+  const selectAllCb = document.getElementById('select-all-checkbox');
+  const allCbs = document.querySelectorAll('.history-checkbox');
+
+  if (batchBtn) {
+    if (checkedCbs.length > 0) {
+      batchBtn.innerText = `🗑️ 批量刪除 (${checkedCbs.length})`;
+      batchBtn.classList.remove('hidden');
+    } else {
+      batchBtn.classList.add('hidden');
+    }
+  }
+
+  if (selectAllCb && allCbs.length > 0) {
+    selectAllCb.checked = (checkedCbs.length === allCbs.length);
+  }
+}
+
+// 🚀 執行批量刪除
+async function deleteSelectedItems() {
+  const checkedCbs = document.querySelectorAll('.history-checkbox:checked');
+  const selectedIds = Array.from(checkedCbs).map(cb => cb.getAttribute('data-id'));
+
+  if (selectedIds.length === 0) return;
+
+  if (!confirm(`確定要一次刪除勾選的 ${selectedIds.length} 筆叫貨紀錄嗎？`)) return;
+
+  const batchBtn = document.getElementById('btn-batch-delete');
+  if (batchBtn) {
+    batchBtn.disabled = true;
+    batchBtn.innerText = '正在刪除中...';
+  }
+
+  try {
+    await postFormBackground({ action: 'batchDelete', ids: selectedIds });
+    alert(`🎉 已成功刪除 ${selectedIds.length} 筆叫貨紀錄！`);
+    
+    // 重置全選框
+    const selectAllCb = document.getElementById('select-all-checkbox');
+    if (selectAllCb) selectAllCb.checked = false;
+    
+    fetchData();
+  } catch (err) {
+    alert('刪除時發生問題，請刷新再試。');
+  } finally {
+    if (batchBtn) {
+      batchBtn.disabled = false;
+    }
+  }
+}
+
 function renderTable() {
   const tbody = document.getElementById('table-body');
   const filterDate = document.getElementById('filter-date').value;
@@ -587,7 +656,7 @@ function renderTable() {
 
   tbody.innerHTML = '';
 
-  let filteredData = inventoryData; // 已在後端過濾好門市
+  let filteredData = inventoryData;
 
   if (filterDate) filteredData = filteredData.filter(d => d.updatedAt && d.updatedAt.startsWith(filterDate));
   if (filterCat) filteredData = filteredData.filter(d => d.category === filterCat);
@@ -597,7 +666,8 @@ function renderTable() {
   if (filterShift) preparedList = preparedList.filter(item => item.parsed.shiftName === filterShift);
 
   if (!preparedList || preparedList.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">【${currentActiveStore}】查無符合條件的叫貨紀錄</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-400">【${currentActiveStore}】查無符合條件的叫貨紀錄</td></tr>`;
+    updateBatchDeleteButtonState();
     return;
   }
 
@@ -605,6 +675,9 @@ function renderTable() {
     const tr = document.createElement('tr');
     tr.className = 'hover:bg-gray-50';
     tr.innerHTML = `
+      <td class="p-3 text-center">
+        <input type="checkbox" class="history-checkbox w-4 h-4 text-indigo-600 rounded cursor-pointer" data-id="${item.id}" onchange="updateBatchDeleteButtonState()">
+      </td>
       <td class="p-3 font-medium text-gray-800 whitespace-nowrap">${item.itemName}</td>
       <td class="p-3 text-center font-bold text-blue-600 whitespace-nowrap">${item.quantity}</td>
       <td class="p-3 text-center text-gray-600 text-xs font-semibold whitespace-nowrap">
@@ -616,6 +689,8 @@ function renderTable() {
     `;
     tbody.appendChild(tr);
   });
+
+  updateBatchDeleteButtonState();
 }
 
 async function deleteItem(id) {
