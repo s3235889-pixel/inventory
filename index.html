@@ -1,696 +1,649 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>連鎖門市雲端盤點系統 (AA)</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>連鎖門市雲端盤點系統 (AA)</title>
+<script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-100 p-4 md:p-6 min-h-screen">
 
-  <!-- 門市進入/密碼驗證彈窗 (入口門禁) -->
-  <div id="store-modal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center space-y-5 border border-gray-100">
-      <div class="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto text-2xl font-bold">
-        🔒
-      </div>
-      <div>
-        <h2 class="text-2xl font-bold text-gray-800">門市身份驗證</h2>
-        <p class="text-sm text-gray-500 mt-1">請選擇您的門市並輸入授權密碼以進入盤點系統</p>
-      </div>
+<iframe name="hidden_iframe" id="hidden_iframe" style="display:none;"></iframe>
 
-      <div class="space-y-4 text-left">
-        <div>
-          <label class="block text-xs font-bold text-gray-600 mb-1">選擇門市</label>
-          <select id="modal-store-select" class="w-full bg-gray-50 border border-gray-300 text-gray-800 font-bold p-3 rounded-xl text-base focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-            <option value="萬丹店(W)">萬丹店(W)</option>
-            <option value="潮州店(C1)">潮州店(C1)</option>
-            <option value="屏東店(P1)">屏東店(P1)</option>
-            <option value="仁愛店(P2)">仁愛店(P2)</option>
-            <option value="木崎(C2)">木崎(C2)</option>
-            <option value="東港店(D)">東港店(D)</option>
-          </select>
-        </div>
+<!-- 門市進入/密碼驗證彈窗 -->
+<div id="store-modal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+<div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center space-y-5 border border-gray-100">
+<div class="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto text-2xl font-bold">
+🔒
+</div>
+<div>
+<h2 class="text-2xl font-bold text-gray-800">門市身份驗證</h2>
+<p class="text-sm text-gray-500 mt-1">請選擇您的門市並輸入授權密碼以進入盤點系統</p>
+</div>
 
-        <div>
-          <label class="block text-xs font-bold text-gray-600 mb-1">門市授權密碼</label>
-          <input type="password" id="store-password-input" placeholder="請輸入 4 位數門市密碼" class="w-full bg-gray-50 border border-gray-300 text-gray-800 font-bold p-3 rounded-xl text-base focus:ring-2 focus:ring-indigo-500 focus:outline-none" tracking="false">
-        </div>
-        
-        <button onclick="confirmStoreSelection()" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition shadow-lg shadow-indigo-200">
-          驗證密碼並進入盤點系統 ➔
-        </button>
-      </div>
-    </div>
-  </div>
+<div class="space-y-4 text-left">
+<div>
+<label class="block text-xs font-bold text-gray-600 mb-1">選擇門市</label>
+<select id="modal-store-select" class="w-full bg-gray-50 border border-gray-300 text-gray-800 font-bold p-3 rounded-xl text-base focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+<option value="萬丹店(W)">萬丹店(W)</option>
+<option value="潮州店(C1)">潮州店(C1)</option>
+<option value="屏東店(P1)">屏東店(P1)</option>
+<option value="仁愛店(P2)">仁愛店(P2)</option>
+<option value="木崎(C2)">木崎(C2)</option>
+<option value="東港店(D)">東港店(D)</option>
+</select>
+</div>
 
-  <!-- 主要盤點系統內容區域 -->
-  <div class="max-w-4xl mx-auto space-y-6">
-    
-    <!-- 頁首與當前門市展示 -->
-    <div class="bg-indigo-900 text-white p-4 rounded-xl shadow-md flex flex-wrap justify-between items-center gap-4">
-      <div>
-        <h1 class="text-xl font-bold">雲端盤點管理系統</h1>
-        <p class="text-xs text-indigo-200">當前專屬資料庫：已開啟門市權限安全隔離</p>
-      </div>
-      
-      <div class="flex items-center gap-3">
-        <div class="bg-indigo-800/90 px-3 py-1.5 rounded-lg border border-indigo-700 text-sm flex items-center gap-1.5">
-          <span class="text-xs text-indigo-300">📍 當前門市：</span>
-          <span id="current-store-display" class="font-bold text-amber-300">未登入</span>
-        </div>
-        <button onclick="openStoreModal()" class="text-xs bg-indigo-700 hover:bg-indigo-600 text-indigo-100 px-3 py-2 rounded-lg border border-indigo-500 transition">
-          🔒 切換/重新驗證門市
-        </button>
-      </div>
-    </div>
+<div>
+<label class="block text-xs font-bold text-gray-600 mb-1">門市授權密碼</label>
+<input type="password" id="store-password-input" placeholder="請輸入 4 位數門市密碼" class="w-full bg-gray-50 border border-gray-300 text-gray-800 font-bold p-3 rounded-xl text-base focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+</div>
+<button onclick="confirmStoreSelection()" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition shadow-lg shadow-indigo-200">
+驗證密碼並進入盤點系統 ➔
+</button>
+</div>
+</div>
+</div>
 
-    <!-- 區塊 1：管理分類與品項 -->
-    <details class="bg-white rounded-xl shadow-md p-4 border border-blue-100">
-      <summary class="font-semibold text-blue-600 cursor-pointer flex justify-between items-center">
-        <span>⚙️ 設定「<span class="target-store-text font-bold text-indigo-700">--</span>」專屬商品與分類 (items)</span>
-        <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">點擊展開</span>
-      </summary>
-      
-      <div class="mt-4 pt-3 border-t space-y-4">
-        <!-- 功能 A：新增該門市專屬分類 -->
-        <div class="bg-gray-50 p-3 rounded-lg border">
-          <label class="block text-xs font-bold text-gray-600 mb-2">Step 1：為「<span class="target-store-text text-indigo-700">--</span>」新增獨立分類</label>
-          <div class="flex gap-2">
-            <input type="text" id="new-single-cat" placeholder="輸入新類別名稱 (例: 特調飲品類、限定餐點類)" class="border p-2 rounded w-full">
-            <button onclick="addOnlyCategory()" id="btn-add-cat-only" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 font-medium whitespace-nowrap">建立門市分類</button>
-          </div>
-        </div>
+<!-- 主要內容區域 -->
+<div class="max-w-4xl mx-auto space-y-6">
+<div class="bg-indigo-900 text-white p-4 rounded-xl shadow-md flex flex-wrap justify-between items-center gap-4">
+<div>
+<h1 class="text-xl font-bold">雲端盤點管理系統</h1>
+<p class="text-xs text-indigo-200">當前專屬資料庫：已開啟門市權限安全隔離</p>
+</div>
+<div class="flex items-center gap-3">
+<div class="bg-indigo-800/90 px-3 py-1.5 rounded-lg border border-indigo-700 text-sm flex items-center gap-1.5">
+<span class="text-xs text-indigo-300">📍 當前門市：</span>
+<span id="current-store-display" class="font-bold text-amber-300">未登入</span>
+</div>
+<button onclick="openStoreModal()" class="text-xs bg-indigo-700 hover:bg-indigo-600 text-indigo-100 px-3 py-2 rounded-lg border border-indigo-500 transition">
+🔒 切換/重新驗證門市
+</button>
+</div>
+</div>
 
-        <!-- 功能 B：新增該門市專屬品項 -->
-        <div class="bg-gray-50 p-3 rounded-lg border">
-          <label class="block text-xs font-bold text-gray-600 mb-2">Step 2：選擇「<span class="target-store-text text-indigo-700">--</span>」的分類並建立商品</label>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-            <select id="catalog-cat-select" class="border p-2 rounded w-full bg-white">
-              <option value="">-- 請先選擇分類 --</option>
-            </select>
-            <input type="text" id="new-item-name" placeholder="輸入品項名稱 (例: 限定抹茶冰淇淋)" class="border p-2 rounded w-full">
-            <button onclick="addCatalogItem()" id="btn-add-item" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 font-medium">新增至門市商品</button>
-          </div>
-        </div>
-      </div>
-    </details>
+<!-- 區塊 1：管理分類與品項 -->
+<details class="bg-white rounded-xl shadow-md p-4 border border-blue-100">
+<summary class="font-semibold text-blue-600 cursor-pointer flex justify-between items-center">
+<span>⚙️ 設定「<span class="target-store-text font-bold text-indigo-700">--</span>」專屬商品與分類 (items)</span>
+<span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">點擊展開</span>
+</summary>
+<div class="mt-4 pt-3 border-t space-y-4">
+<div class="bg-gray-50 p-3 rounded-lg border">
+<label class="block text-xs font-bold text-gray-600 mb-2">Step 1：為「<span class="target-store-text text-indigo-700">--</span>」新增獨立分類</label>
+<div class="flex gap-2">
+<input type="text" id="new-single-cat" placeholder="輸入新類別名稱 (例: 特調飲品類)" class="border p-2 rounded w-full">
+<button onclick="addOnlyCategory()" id="btn-add-cat-only" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 font-medium whitespace-nowrap">建立門市分類</button>
+</div>
+</div>
 
-    <!-- 區塊 2：點貨選擇區 -->
-    <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
-      <div class="flex flex-wrap justify-between items-center gap-2">
-        <h2 class="text-lg font-semibold text-gray-700">1. 選擇商品放入購物車 (<span class="target-store-text font-bold text-indigo-700">--</span>)</h2>
-        
-        <!-- ⏰ 點貨時段切換 (根據時間自動判斷 PM 6:00) -->
-        <div class="flex items-center gap-2 bg-amber-50 p-1.5 px-3 rounded-lg border border-amber-200">
-          <label class="text-xs font-bold text-amber-900 whitespace-nowrap">⏰ 當前點貨時段：</label>
-          <select id="work-shift-select" class="bg-white text-gray-800 font-bold px-2.5 py-1 rounded border text-xs focus:outline-none">
-            <option value="下午">下午 (18:00前)</option>
-            <option value="打烊">打烊 (18:00後)</option>
-          </select>
-        </div>
-      </div>
-      
-      <!-- 🔍 關鍵字搜尋欄位 -->
-      <div>
-        <label class="block text-xs font-bold text-gray-600 mb-1">🔎 關鍵字快速搜尋商品</label>
-        <input 
-          type="text" 
-          id="item-search-input" 
-          oninput="filterItemDropdown()" 
-          placeholder="輸入商品名稱關鍵字 (例如: 豚骨、高湯、麵...)" 
-          class="border p-2.5 rounded-lg w-full bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition text-sm"
-        >
-      </div>
+<div class="bg-gray-50 p-3 rounded-lg border">
+<label class="block text-xs font-bold text-gray-600 mb-2">Step 2：選擇「<span class="target-store-text text-indigo-700">--</span>」的分類並建立商品</label>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+<select id="catalog-cat-select" class="border p-2 rounded w-full bg-white">
+<option value="">-- 請先選擇分類 --</option>
+</select>
+<input type="text" id="new-item-name" placeholder="輸入品項名稱 (例: 限定抹茶冰淇淋)" class="border p-2 rounded w-full">
+<button onclick="addCatalogItem()" id="btn-add-item" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 font-medium">新增至門市商品</button>
+</div>
+</div>
+</div>
+</details>
 
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <div>
-          <label class="block text-xs font-bold text-gray-500 mb-1">依類別篩選</label>
-          <select id="item-cat" onchange="filterItemDropdown()" class="border p-2 rounded w-full bg-gray-50 text-sm">
-            <option value="">全部類別</option>
-          </select>
-        </div>
+<!-- 區塊 2：點貨選擇區 -->
+<div class="bg-white p-6 rounded-xl shadow-md space-y-4">
+<div class="flex flex-wrap justify-between items-center gap-2">
+<h2 class="text-lg font-semibold text-gray-700">1. 選擇商品放入購物車 (<span class="target-store-text font-bold text-indigo-700">--</span>)</h2>
+<div class="flex items-center gap-2 bg-amber-50 p-1.5 px-3 rounded-lg border border-amber-200">
+<label class="text-xs font-bold text-amber-900 whitespace-nowrap">⏰ 當前點貨時段：</label>
+<select id="work-shift-select" class="bg-white text-gray-800 font-bold px-2.5 py-1 rounded border text-xs focus:outline-none">
+<option value="下午">下午 (18:00前)</option>
+<option value="打烊">打烊 (18:00後)</option>
+</select>
+</div>
+</div>
 
-        <div>
-          <label class="block text-xs font-bold text-gray-500 mb-1">選擇商品</label>
-          <select id="item-name-select" class="border p-2 rounded w-full text-sm">
-            <option value="">請先驗證並進入門市...</option>
-          </select>
-        </div>
+<div>
+<label class="block text-xs font-bold text-gray-600 mb-1">🔎 關鍵字快速搜尋商品</label>
+<input
+type="text"
+id="item-search-input"
+oninput="filterItemDropdown()"
+placeholder="輸入商品名稱關鍵字 (例如: 豚骨、高湯、麵...)"
+class="border p-2.5 rounded-lg w-full bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition text-sm"
+>
+</div>
 
-        <!-- 下拉式選擇盤點數量 (1-20) -->
-        <div>
-          <label class="block text-xs font-bold text-gray-500 mb-1">盤點數量</label>
-          <select id="item-qty" class="border p-2 rounded w-full bg-white font-medium text-sm">
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-            <option value="4">4</option>
-            <option value="5">5</option>
-            <option value="6">6</option>
-            <option value="7">7</option>
-            <option value="8">8</option>
-            <option value="9">9</option>
-            <option value="10">10</option>
-            <option value="11">11</option>
-            <option value="12">12</option>
-            <option value="13">13</option>
-            <option value="14">14</option>
-            <option value="15">15</option>
-            <option value="16">16</option>
-            <option value="17">17</option>
-            <option value="18">18</option>
-            <option value="19">19</option>
-            <option value="20">20</option>
-          </select>
-        </div>
+<div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+<div>
+<label class="block text-xs font-bold text-gray-500 mb-1">依類別篩選</label>
+<select id="item-cat" onchange="filterItemDropdown()" class="border p-2 rounded w-full bg-gray-50 text-sm">
+<option value="">全部類別</option>
+</select>
+</div>
 
-        <div class="flex items-end">
-          <button onclick="addToQueue()" class="bg-amber-500 text-white px-4 py-2 rounded w-full hover:bg-amber-600 font-medium h-[42px] shadow flex justify-center items-center gap-1 text-sm">
-            🛒 放入暫存購物車
-          </button>
-        </div>
-      </div>
-    </div>
+<div>
+<label class="block text-xs font-bold text-gray-500 mb-1">選擇商品</label>
+<select id="item-name-select" class="border p-2 rounded w-full text-sm">
+<option value="">請先驗證並進入門市...</option>
+</select>
+</div>
 
-    <!-- 區塊 3：購物車預覽區 -->
-    <div class="bg-amber-50/60 border-2 border-amber-300 p-6 rounded-xl shadow-sm space-y-4">
-      <div class="flex flex-wrap justify-between items-center gap-2">
-        <div class="flex items-center gap-2">
-          <h2 class="text-lg font-bold text-amber-900 flex items-center gap-1">
-            🛒 2. 待送出盤點清單 (<span class="target-store-text font-bold text-indigo-700">--</span>)
-          </h2>
-          <span id="queue-count" class="bg-amber-200 text-amber-900 text-xs px-2.5 py-0.5 rounded-full font-bold">0 筆項目</span>
-        </div>
-        
-        <div class="flex items-center gap-2">
-          <button onclick="clearQueue()" id="btn-clear-queue" class="text-xs bg-white text-gray-600 hover:text-red-600 px-3 py-2 rounded border border-gray-300 transition hidden">
-            🗑️ 清空購物車
-          </button>
-          <button onclick="submitBatch()" id="btn-submit-batch" class="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg font-bold shadow-md shadow-red-200 transition disabled:opacity-40 disabled:hover:bg-red-600" disabled>
-            🚀 盤點確定送出
-          </button>
-        </div>
-      </div>
+<div>
+<label class="block text-xs font-bold text-gray-500 mb-1">盤點數量</label>
+<select id="item-qty" class="border p-2 rounded w-full bg-white font-medium text-sm">
+<option value="1">1</option><option value="2">2</option><option value="3">3</option>
+<option value="4">4</option><option value="5">5</option><option value="6">6</option>
+<option value="7">7</option><option value="8">8</option><option value="9">9</option>
+<option value="10">10</option><option value="11">11</option><option value="12">12</option>
+<option value="13">13</option><option value="14">14</option><option value="15">15</option>
+<option value="16">16</option><option value="17">17</option><option value="18">18</option>
+<option value="19">19</option><option value="20">20</option>
+</select>
+</div>
 
-      <div class="overflow-x-auto bg-white rounded-lg border border-amber-200">
-        <table class="min-w-full border-collapse">
-          <thead>
-            <tr class="bg-amber-100/70 text-left text-sm font-semibold text-amber-900 border-b">
-              <th class="p-3 whitespace-nowrap">品項名稱</th>
-              <th class="p-3 w-32 whitespace-nowrap">數量 (可修改)</th>
-              <th class="p-3 text-center w-24 whitespace-nowrap">操作</th>
-            </tr>
-          </thead>
-          <tbody id="queue-table-body" class="divide-y divide-gray-100 text-sm text-gray-700">
-            <tr><td colspan="3" class="p-4 text-center text-gray-400">目前購物車是空的。</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+<div class="flex items-end">
+<button onclick="addToQueue()" class="bg-amber-500 text-white px-4 py-2 rounded w-full hover:bg-amber-600 font-medium h-[42px] shadow flex justify-center items-center gap-1 text-sm">
+🛒 放入暫存購物車
+</button>
+</div>
+</div>
+</div>
 
-    <!-- 區塊 4：門市專屬歷史紀錄查詢區 -->
-    <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
-      <div class="border-b pb-3 flex flex-wrap justify-between items-center gap-3">
-        <div>
-          <h2 class="text-lg font-bold text-gray-800">🔍 3. 「<span class="target-store-text font-bold text-indigo-700">--</span>」專屬叫貨歷史紀錄</h2>
-          <p class="text-xs text-gray-400 mt-0.5">預設顯示本日叫貨，系統已依 PM 6:00 自動區分下午與打烊</p>
-        </div>
-        <button onclick="loadAllData()" class="text-xs bg-gray-100 border px-3 py-1.5 rounded hover:bg-gray-200 flex items-center gap-1">🔄 重新整理資料</button>
-      </div>
+<!-- 區塊 3：購物車預覽區 -->
+<div class="bg-amber-50/60 border-2 border-amber-300 p-6 rounded-xl shadow-sm space-y-4">
+<div class="flex flex-wrap justify-between items-center gap-2">
+<div class="flex items-center gap-2">
+<h2 class="text-lg font-bold text-amber-900 flex items-center gap-1">
+🛒 2. 待送出盤點清單 (<span class="target-store-text font-bold text-indigo-700">--</span>)
+</h2>
+<span id="queue-count" class="bg-amber-200 text-amber-900 text-xs px-2.5 py-0.5 rounded-full font-bold">0 筆項目</span>
+</div>
+<div class="flex items-center gap-2">
+<button onclick="clearQueue()" id="btn-clear-queue" class="text-xs bg-white text-gray-600 hover:text-red-600 px-3 py-2 rounded border border-gray-300 transition hidden">
+🗑️ 清空購物車
+</button>
+<button onclick="submitBatch()" id="btn-submit-batch" class="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg font-bold shadow-md shadow-red-200 transition disabled:opacity-40 disabled:hover:bg-red-600" disabled>
+🚀 盤點確定送出
+</button>
+</div>
+</div>
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 p-3 rounded-lg border">
-        <div>
-          <label class="block text-xs font-bold text-gray-600 mb-1">📅 選擇叫貨日期 (預設為今天)</label>
-          <input type="date" id="filter-date" onchange="renderTable()" class="border p-2 rounded w-full text-sm bg-white">
-        </div>
+<div class="overflow-x-auto bg-white rounded-lg border border-amber-200">
+<table class="min-w-full border-collapse">
+<thead>
+<tr class="bg-amber-100/70 text-left text-sm font-semibold text-amber-900 border-b">
+<th class="p-3 whitespace-nowrap">品項名稱</th>
+<th class="p-3 w-32 whitespace-nowrap">數量 (可修改)</th>
+<th class="p-3 text-center w-24 whitespace-nowrap">操作</th>
+</tr>
+</thead>
+<tbody id="queue-table-body" class="divide-y divide-gray-100 text-sm text-gray-700">
+<tr><td colspan="3" class="p-4 text-center text-gray-400">目前購物車是空的。</td></tr>
+</tbody>
+</table>
+</div>
+</div>
 
-        <div>
-          <label class="block text-xs font-bold text-gray-600 mb-1">⏰ 篩選時段 (下午 / 打烊)</label>
-          <select id="filter-shift" onchange="renderTable()" class="border p-2 rounded w-full text-sm bg-white font-medium">
-            <option value="">全部時段</option>
-            <option value="下午">下午 (18:00前)</option>
-            <option value="打烊">打烊 (18:00後)</option>
-          </select>
-        </div>
+<!-- 區塊 4：歷史紀錄查詢區 -->
+<div class="bg-white p-6 rounded-xl shadow-md space-y-4">
+<div class="border-b pb-3 flex flex-wrap justify-between items-center gap-3">
+<div>
+<h2 class="text-lg font-bold text-gray-800">🔍 3. 「<span class="target-store-text font-bold text-indigo-700">--</span>」專屬叫貨歷史紀錄</h2>
+<p class="text-xs text-gray-400 mt-0.5">預設極速讀取當日紀錄，切換日期可加載指定歷史資料</p>
+</div>
+<button onclick="fetchData()" class="text-xs bg-gray-100 border px-3 py-1.5 rounded hover:bg-gray-200 flex items-center gap-1">🔄 重新整理資料</button>
+</div>
 
-        <div>
-          <label class="block text-xs font-bold text-gray-600 mb-1">🏷️ 篩選類別</label>
-          <select id="filter-cat" onchange="renderTable()" class="border p-2 rounded w-full text-sm bg-white">
-            <option value="">全部類別</option>
-          </select>
-        </div>
-      </div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 p-3 rounded-lg border">
+<div>
+<label class="block text-xs font-bold text-gray-600 mb-1">📅 選擇叫貨日期 (切換時自動讀取該日)</label>
+<input type="date" id="filter-date" onchange="fetchData()" class="border p-2 rounded w-full text-sm bg-white">
+</div>
 
-      <div class="overflow-x-auto">
-        <table class="min-w-full border-collapse border border-gray-200">
-          <thead>
-            <tr class="bg-gray-100 text-left text-sm font-semibold text-gray-600 border-b">
-              <th class="p-3 whitespace-nowrap">品項名稱</th>
-              <th class="p-3 text-center whitespace-nowrap">叫貨數量</th>
-              <th class="p-3 text-center whitespace-nowrap">叫貨日期與時段</th>
-              <th class="p-3 text-center whitespace-nowrap">操作</th>
-            </tr>
-          </thead>
-          <tbody id="table-body" class="divide-y divide-gray-200 text-sm text-gray-700">
-            <tr><td colspan="4" class="p-4 text-center text-gray-400">資料載入中...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+<div>
+<label class="block text-xs font-bold text-gray-600 mb-1">⏰ 篩選時段 (下午 / 打烊)</label>
+<select id="filter-shift" onchange="renderTable()" class="border p-2 rounded w-full text-sm bg-white font-medium">
+<option value="">全部時段</option>
+<option value="下午">下午 (18:00前)</option>
+<option value="打烊">打烊 (18:00後)</option>
+</select>
+</div>
 
-  </div>
+<div>
+<label class="block text-xs font-bold text-gray-600 mb-1">🏷️ 篩選類別</label>
+<select id="filter-cat" onchange="renderTable()" class="border p-2 rounded w-full text-sm bg-white">
+<option value="">全部類別</option>
+</select>
+</div>
+</div>
 
-  <script>
-    const API_URL = 'https://script.google.com/macros/s/AKfycbxiblsuljzndWVVMCbHOMekJqIKlshKcprpO6SS7i8PMTHnLojT1B4LXjutB_IEb3dVoQ/exec';
+<div class="overflow-x-auto">
+<table class="min-w-full border-collapse border border-gray-200">
+<thead>
+<tr class="bg-gray-100 text-left text-sm font-semibold text-gray-600 border-b">
+<th class="p-3 whitespace-nowrap">品項名稱</th>
+<th class="p-3 text-center whitespace-nowrap">叫貨數量</th>
+<th class="p-3 text-center whitespace-nowrap">叫貨日期與時段</th>
+<th class="p-3 text-center whitespace-nowrap">操作</th>
+</tr>
+</thead>
+<tbody id="table-body" class="divide-y divide-gray-200 text-sm text-gray-700">
+<tr><td colspan="4" class="p-4 text-center text-gray-400">資料載入中...</td></tr>
+</tbody>
+</table>
+</div>
+</div>
 
-    const STORE_PASSWORDS = {
-      '萬丹店(W)': '1101',
-      '潮州店(C1)': '1201',
-      '屏東店(P1)': '1301',
-      '仁愛店(P2)': '1401',
-      '木崎(C2)': '1501',
-      '東港店(D)': '1601'
+</div>
+
+<script>
+const API_URL = 'https://script.google.com/macros/s/AKfycbxXWnitm1MvZiu0QWQqB8w2ql1E6pYl_Xsv4gUnqVySsoFu9cRaWI6GhbZdvw2PCtoPmQ/exec';
+
+const STORE_PASSWORDS = {
+'萬丹店(W)': '1101',
+'潮州店(C1)': '1201',
+'屏東店(P1)': '1301',
+'仁愛店(P2)': '1401',
+'木崎(C2)': '1501',
+'東港店(D)': '1601'
+};
+
+let currentActiveStore = '';
+let rawCatalog = [];
+let inventoryData = [];
+let pendingQueue = [];
+
+function getLocalTodayDate() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function fetchJSONP(url) {
+  return new Promise((resolve, reject) => {
+    const callbackName = 'jsonp_cb_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+    window[callbackName] = function(data) {
+      delete window[callbackName];
+      if (document.body.contains(script)) document.body.removeChild(script);
+      resolve(data);
     };
 
-    let currentActiveStore = '';
-    let rawCatalog = [];
-    let inventoryData = [];
-    let pendingQueue = [];
+    const script = document.createElement('script');
+    const separator = url.includes('?') ? '&' : '?';
+    script.src = `${url}${separator}callback=${callbackName}`;
+    script.onerror = function() {
+      delete window[callbackName];
+      if (document.body.contains(script)) document.body.removeChild(script);
+      reject(new Error('JSONP 連線失敗，請確認 GAS 部署狀態。'));
+    };
+    document.body.appendChild(script);
+  });
+}
 
-    // 設定日期輸入框預設為今天，並以 PM 6:00 (18:00) 判斷預設時段
-    function setDefaultDateAndShift() {
-      const now = new Date();
-      const today = now.toISOString().split('T')[0];
-      const filterDateInput = document.getElementById('filter-date');
-      if (filterDateInput && !filterDateInput.value) {
-        filterDateInput.value = today;
-      }
-
-      // 💡 時間判斷式：18:00 (PM 6:00) 前為「下午」，18:00 後為「打烊」
-      const hours = now.getHours();
-      const shiftSelect = document.getElementById('work-shift-select');
-      if (shiftSelect) {
-        shiftSelect.value = (hours < 18) ? '下午' : '打烊';
-      }
+function postFormBackground(payloadObj) {
+  return new Promise((resolve) => {
+    let form = document.getElementById('bg_post_form');
+    if (!form) {
+      form = document.createElement('form');
+      form.id = 'bg_post_form';
+      form.method = 'POST';
+      form.target = 'hidden_iframe';
+      form.style.display = 'none';
+      
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'payload';
+      input.id = 'bg_post_payload';
+      form.appendChild(input);
+      document.body.appendChild(form);
     }
 
-    function openStoreModal() {
-      if (pendingQueue.length > 0) {
-        if (!confirm('切換門市將會清空目前購物車未送出的暫存項目，確定要切換嗎？')) {
-          return;
-        }
-        pendingQueue = [];
-        renderQueueTable();
-      }
-      document.getElementById('store-password-input').value = '';
-      document.getElementById('store-modal').classList.remove('hidden');
-    }
+    form.action = API_URL;
+    document.getElementById('bg_post_payload').value = JSON.stringify(payloadObj);
+    form.submit();
 
-    function confirmStoreSelection() {
-      const selectedStore = document.getElementById('modal-store-select').value;
-      const inputPassword = document.getElementById('store-password-input').value.trim();
-      const correctPassword = STORE_PASSWORDS[selectedStore];
+    setTimeout(() => { resolve({ status: 'success' }); }, 1200);
+  });
+}
 
-      if (!inputPassword) {
-        alert('請輸入門市授權密碼！');
-        return;
-      }
+function setDefaultDateAndShift() {
+  const today = getLocalTodayDate();
+  const filterDateInput = document.getElementById('filter-date');
+  if (filterDateInput && !filterDateInput.value) filterDateInput.value = today;
 
-      if (inputPassword !== correctPassword) {
-        alert('❌ 密碼錯誤！請重新確認門市對應密碼。');
-        document.getElementById('store-password-input').value = '';
-        return;
-      }
+  const hours = new Date().getHours();
+  const shiftSelect = document.getElementById('work-shift-select');
+  if (shiftSelect) shiftSelect.value = (hours < 18) ? '下午' : '打烊';
+}
 
-      currentActiveStore = selectedStore;
+function openStoreModal() {
+  if (pendingQueue.length > 0) {
+    if (!confirm('切換門市將會清空目前購物車未送出的暫存項目，確定要切換嗎？')) return;
+    pendingQueue = [];
+    renderQueueTable();
+  }
+  document.getElementById('store-password-input').value = '';
+  document.getElementById('store-modal').classList.remove('hidden');
+}
 
-      document.getElementById('current-store-display').innerText = selectedStore;
-      document.querySelectorAll('.target-store-text').forEach(el => el.innerText = selectedStore);
+function confirmStoreSelection() {
+  const selectedStore = document.getElementById('modal-store-select').value;
+  const inputPassword = document.getElementById('store-password-input').value.trim();
+  const correctPassword = STORE_PASSWORDS[selectedStore];
 
-      document.getElementById('store-modal').classList.add('hidden');
-      document.getElementById('store-password-input').value = '';
+  if (!inputPassword) return alert('請輸入門市授權密碼！');
+  if (inputPassword !== correctPassword) {
+    alert('❌ 密碼錯誤！請重新確認門市對應密碼。');
+    document.getElementById('store-password-input').value = '';
+    return;
+  }
 
-      setDefaultDateAndShift();
-      loadAllData();
-    }
+  currentActiveStore = selectedStore;
+  document.getElementById('current-store-display').innerText = selectedStore;
+  document.querySelectorAll('.target-store-text').forEach(el => el.innerText = selectedStore);
+  document.getElementById('store-modal').classList.add('hidden');
+  document.getElementById('store-password-input').value = '';
 
-    async function loadAllData() {
-      if (!currentActiveStore) return;
-      await fetchCatalog();
-      await fetchData();
-    }
+  setDefaultDateAndShift();
+  loadAllData();
+}
 
-    async function fetchCatalog() {
-      const itemSelect = document.getElementById('item-name-select');
-      try {
-        const res = await fetch(`${API_URL}?action=getCatalog&t=${Date.now()}`);
-        const result = await res.json();
-        
-        if (result.status === 'error') {
-          itemSelect.innerHTML = '<option value="">-- 後端權限異常 --</option>';
-          return;
-        }
+// ⚡ 核心優化：開頁時一次性初始化拿回 Catalog + 當日紀錄 (節省 1 次連線)
+async function loadAllData() {
+  if (!currentActiveStore) return;
+  const tbody = document.getElementById('table-body');
+  const targetDate = document.getElementById('filter-date').value;
+  tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">極速初始化載入中...</td></tr>`;
 
-        rawCatalog = result.data || [];
-        updateCategoryOptions();
-        filterItemDropdown();
-      } catch (err) {
-        itemSelect.innerHTML = '<option value="">-- 連線失敗，請重整 --</option>';
-      }
-    }
-
-    async function fetchData() {
-      const tbody = document.getElementById('table-body');
-      tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-400">載入門市專屬盤點紀錄中...</td></tr>';
-      try {
-        const res = await fetch(`${API_URL}?t=${Date.now()}`);
-        const result = await res.json();
-        inventoryData = result.data || [];
-        renderTable();
-      } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-red-500">載入失敗，請檢查網路。</td></tr>';
-      }
-    }
-
-    function updateCategoryOptions() {
-      const storeCatalog = rawCatalog.filter(item => item.store === currentActiveStore || !item.store);
-      const categories = Array.from(new Set(storeCatalog.map(item => item.category).filter(Boolean)));
-
-      const catSelect = document.getElementById('item-cat');
-      const catalogCatSelect = document.getElementById('catalog-cat-select');
-      const filterCat = document.getElementById('filter-cat');
-
-      if (categories.length === 0) {
-        catSelect.innerHTML = '<option value="">(此門市尚無類別)</option>';
-        catalogCatSelect.innerHTML = '<option value="">-- 無類別，請先建立 --</option>';
-        filterCat.innerHTML = '<option value="">全部類別</option>';
-      } else {
-        const buildOptions = (firstText) => `
-          <option value="">${firstText}</option>
-          ${categories.map(c => `<option value="${c}">${c}</option>`).join('')}
-        `;
-        catSelect.innerHTML = buildOptions('全部類別');
-        catalogCatSelect.innerHTML = buildOptions('-- 請選擇分類 --');
-        filterCat.innerHTML = buildOptions('全部類別');
-      }
-    }
-
-    function filterItemDropdown() {
-      const selectedCat = document.getElementById('item-cat').value;
-      const searchKeyword = (document.getElementById('item-search-input')?.value || '').trim().toLowerCase();
-      const itemSelect = document.getElementById('item-name-select');
-
-      let storeItems = rawCatalog.filter(i => (i.store === currentActiveStore || !i.store) && i.itemName);
-
-      if (selectedCat) {
-        storeItems = storeItems.filter(i => i.category === selectedCat);
-      }
-
-      if (searchKeyword) {
-        storeItems = storeItems.filter(i => i.itemName.toLowerCase().includes(searchKeyword));
-      }
-
-      if (storeItems.length === 0) {
-        itemSelect.innerHTML = searchKeyword 
-          ? `<option value="">-- 查無包含「${searchKeyword}」的商品 --</option>`
-          : `<option value="">-- 【${currentActiveStore}】尚無專屬商品 --</option>`;
-        return;
-      }
-
-      itemSelect.innerHTML = '<option value="">-- 請選擇商品 --</option>' +
-        storeItems.map(i => `<option value="${i.itemName}" data-cat="${i.category}">${i.itemName}</option>`).join('');
-    }
-
-    function addToQueue() {
-      const itemSelect = document.getElementById('item-name-select');
-      const itemName = itemSelect.value;
-      const selectedOption = itemSelect.options[itemSelect.selectedIndex];
-      const category = selectedOption ? selectedOption.getAttribute('data-cat') || '未分類' : '未分類';
-      const quantity = document.getElementById('item-qty').value;
-
-      if (!itemName || itemName.startsWith('--')) {
-        alert('請先選擇正確的商品！');
-        return;
-      }
-
-      const existingIndex = pendingQueue.findIndex(q => q.itemName === itemName && q.category === category);
-      if (existingIndex > -1) {
-        pendingQueue[existingIndex].quantity = quantity;
-      } else {
-        pendingQueue.push({ category, itemName, quantity });
-      }
-
-      document.getElementById('item-qty').value = "1";
-      document.getElementById('item-search-input').value = "";
+  try {
+    const result = await fetchJSONP(`${API_URL}?action=init&date=${targetDate}&t=${Date.now()}`);
+    if (result.status === 'success') {
+      rawCatalog = result.catalog || [];
+      inventoryData = result.inventory || [];
+      updateCategoryOptions();
       filterItemDropdown();
-      renderQueueTable();
+      renderTable();
+    } else {
+      tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500 font-bold">初始化失敗：${result.message}</td></tr>`;
     }
+  } catch (err) {
+    console.error(err);
+    tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500 font-bold">載入失敗，請檢查網路連線。</td></tr>`;
+  }
+}
 
-    function generateQtyOptionsHTML(selectedQty) {
-      let options = '';
-      for (let i = 1; i <= 20; i++) {
-        options += `<option value="${i}" ${Number(selectedQty) === i ? 'selected' : ''}>${i}</option>`;
-      }
-      return options;
+async function fetchCatalog() {
+  try {
+    const result = await fetchJSONP(`${API_URL}?action=getCatalog&t=${Date.now()}`);
+    rawCatalog = result.data || [];
+    updateCategoryOptions();
+    filterItemDropdown();
+  } catch (err) {}
+}
+
+async function fetchData() {
+  const tbody = document.getElementById('table-body');
+  const targetDate = document.getElementById('filter-date').value;
+  tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">載入【${targetDate}】門市紀錄中...</td></tr>`;
+
+  try {
+    const result = await fetchJSONP(`${API_URL}?date=${targetDate}&t=${Date.now()}`);
+    if (result.status === 'error') {
+      tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500 font-bold">後端異常：${result.message}</td></tr>`;
+      return;
     }
+    inventoryData = result.data || [];
+    renderTable();
+  } catch (err) {
+    console.error(err);
+    tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500 font-bold">載入失敗，請確認 GAS 部署為「建立新版本」。</td></tr>`;
+  }
+}
 
-    function renderQueueTable() {
-      const tbody = document.getElementById('queue-table-body');
-      const submitBtn = document.getElementById('btn-submit-batch');
-      const clearBtn = document.getElementById('btn-clear-queue');
-      const countLabel = document.getElementById('queue-count');
+function updateCategoryOptions() {
+  const storeCatalog = rawCatalog.filter(item => item.store === currentActiveStore || !item.store);
+  const categories = Array.from(new Set(storeCatalog.map(item => item.category).filter(Boolean)));
 
-      countLabel.innerText = `${pendingQueue.length} 筆項目`;
-      tbody.innerHTML = '';
+  const catSelect = document.getElementById('item-cat');
+  const catalogCatSelect = document.getElementById('catalog-cat-select');
+  const filterCat = document.getElementById('filter-cat');
 
-      if (pendingQueue.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-400">目前購物車是空的。</td></tr>';
-        submitBtn.disabled = true;
-        clearBtn.classList.add('hidden');
-        return;
-      }
+  if (categories.length === 0) {
+    catSelect.innerHTML = '<option value="">(此門市尚無類別)</option>';
+    catalogCatSelect.innerHTML = '<option value="">-- 無類別，請先建立 --</option>';
+    filterCat.innerHTML = '<option value="">全部類別</option>';
+  } else {
+    const buildOptions = (firstText) => `<option value="">${firstText}</option>${categories.map(c => `<option value="${c}">${c}</option>`).join('')}`;
+    catSelect.innerHTML = buildOptions('全部類別');
+    catalogCatSelect.innerHTML = buildOptions('-- 請選擇分類 --');
+    filterCat.innerHTML = buildOptions('全部類別');
+  }
+}
 
-      submitBtn.disabled = false;
-      clearBtn.classList.remove('hidden');
+function filterItemDropdown() {
+  const selectedCat = document.getElementById('item-cat').value;
+  const searchKeyword = (document.getElementById('item-search-input')?.value || '').trim().toLowerCase();
+  const itemSelect = document.getElementById('item-name-select');
 
-      pendingQueue.forEach((item, index) => {
-        const tr = document.createElement('tr');
-        tr.className = 'hover:bg-amber-50';
-        tr.innerHTML = `
-          <td class="p-3 font-medium text-gray-800 whitespace-nowrap">${item.itemName}</td>
-          <td class="p-3">
-            <select onchange="updateQueueQty(${index}, this.value)" class="border px-2 py-1 rounded w-20 text-amber-900 font-bold bg-white text-center cursor-pointer">
-              ${generateQtyOptionsHTML(item.quantity)}
-            </select>
-          </td>
-          <td class="p-3 text-center">
-            <button onclick="removeFromQueue(${index})" class="text-red-500 hover:text-red-700 text-xs bg-red-50 px-2 py-1 rounded border border-red-200">移除</button>
-          </td>
-        `;
-        tbody.appendChild(tr);
-      });
-    }
+  let storeItems = rawCatalog.filter(i => (i.store === currentActiveStore || !i.store) && i.itemName);
+  if (selectedCat) storeItems = storeItems.filter(i => i.category === selectedCat);
+  if (searchKeyword) storeItems = storeItems.filter(i => i.itemName.toLowerCase().includes(searchKeyword));
 
-    function updateQueueQty(index, newQty) {
-      pendingQueue[index].quantity = newQty;
-    }
+  if (storeItems.length === 0) {
+    itemSelect.innerHTML = searchKeyword
+      ? `<option value="">-- 查無包含「${searchKeyword}」的商品 --</option>`
+      : `<option value="">-- 【${currentActiveStore}】尚無專屬商品 --</option>`;
+    return;
+  }
 
-    function removeFromQueue(index) {
-      pendingQueue.splice(index, 1);
-      renderQueueTable();
-    }
+  itemSelect.innerHTML = '<option value="">-- 請選擇商品 --</option>' +
+    storeItems.map(i => `<option value="${i.itemName}" data-cat="${i.category}">${i.itemName}</option>`).join('');
+}
 
-    function clearQueue() {
-      if (confirm('確定要清空整個購物車暫存嗎？')) {
-        pendingQueue = [];
-        renderQueueTable();
-      }
-    }
+function addToQueue() {
+  const itemSelect = document.getElementById('item-name-select');
+  const itemName = itemSelect.value;
+  const selectedOption = itemSelect.options[itemSelect.selectedIndex];
+  const category = selectedOption ? selectedOption.getAttribute('data-cat') || '未分類' : '未分類';
+  const quantity = document.getElementById('item-qty').value;
 
-    async function submitBatch() {
-      if (pendingQueue.length === 0) return;
-      
-      const currentShift = document.getElementById('work-shift-select').value;
+  if (!itemName || itemName.startsWith('--')) return alert('請先選擇正確的商品！');
 
-      if (!confirm(`確定要將【${currentActiveStore}】(${currentShift}) 的 ${pendingQueue.length} 筆叫貨資料送出嗎？`)) return;
+  const existingIndex = pendingQueue.findIndex(q => q.itemName === itemName && q.category === category);
+  if (existingIndex > -1) {
+    pendingQueue[existingIndex].quantity = quantity;
+  } else {
+    pendingQueue.push({ category, itemName, quantity });
+  }
 
-      const submitBtn = document.getElementById('btn-submit-batch');
-      submitBtn.disabled = true;
-      submitBtn.innerText = '正在寫入雲端...';
+  document.getElementById('item-qty').value = "1";
+  document.getElementById('item-search-input').value = "";
+  filterItemDropdown();
+  renderQueueTable();
+}
 
-      try {
-        for (const item of pendingQueue) {
-          const payload = {
-            action: 'create',
-            store: `${currentActiveStore} (${currentShift})`,
-            category: item.category,
-            itemName: item.itemName,
-            quantity: item.quantity
-          };
+function generateQtyOptionsHTML(selectedQty) {
+  let options = '';
+  for (let i = 1; i <= 20; i++) {
+    options += `<option value="${i}" ${Number(selectedQty) === i ? 'selected' : ''}>${i}</option>`;
+  }
+  return options;
+}
 
-          await fetch(API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify(payload)
-          });
-        }
+function renderQueueTable() {
+  const tbody = document.getElementById('queue-table-body');
+  const submitBtn = document.getElementById('btn-submit-batch');
+  const clearBtn = document.getElementById('btn-clear-queue');
+  const countLabel = document.getElementById('queue-count');
 
-        alert(`🎉 【${currentActiveStore}】(${currentShift}) 的所有叫貨項目已成功送出！`);
-        pendingQueue = [];
-        renderQueueTable();
-        fetchData();
-      } catch (err) {
-        alert('發送過程發生錯誤，請檢查網路連線。');
-      } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerText = '🚀 盤點確定送出';
-      }
-    }
+  countLabel.innerText = `${pendingQueue.length} 筆項目`;
+  tbody.innerHTML = '';
 
-    // 💡 歷史紀錄時間與時段判斷式 (以 PM 6:00 / 18:00 為基準)
-    function parseDateAndShift(dateStr, storeStr) {
-      if (!dateStr) return { date: '-', shiftName: '下午', shiftBadge: '' };
+  if (pendingQueue.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-400">目前購物車是空的。</td></tr>';
+    submitBtn.disabled = true;
+    clearBtn.classList.add('hidden');
+    return;
+  }
 
-      const parts = dateStr.split(' ');
-      const datePart = parts[0] || '';
-      const timePart = parts[1] || '';
+  submitBtn.disabled = false;
+  clearBtn.classList.remove('hidden');
 
-      // 1. 格式化日期為 月/日
-      let formattedDate = datePart;
-      const dParts = datePart.split('-');
-      if (dParts.length >= 3) {
-        formattedDate = `${dParts[1]}/${dParts[2]}`;
-      }
+  pendingQueue.forEach((item, index) => {
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-amber-50';
+    tr.innerHTML = `
+      <td class="p-3 font-medium text-gray-800 whitespace-nowrap">${item.itemName}</td>
+      <td class="p-3">
+        <select onchange="updateQueueQty(${index}, this.value)" class="border px-2 py-1 rounded w-20 text-amber-900 font-bold bg-white text-center cursor-pointer">
+          ${generateQtyOptionsHTML(item.quantity)}
+        </select>
+      </td>
+      <td class="p-3 text-center">
+        <button onclick="removeFromQueue(${index})" class="text-red-500 hover:text-red-700 text-xs bg-red-50 px-2 py-1 rounded border border-red-200">移除</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
 
-      // 2. 判斷時段邏輯
-      let shiftName = '下午';
+function updateQueueQty(index, newQty) { pendingQueue[index].quantity = newQty; }
+function removeFromQueue(index) { pendingQueue.splice(index, 1); renderQueueTable(); }
+function clearQueue() {
+  if (confirm('確定要清空整個購物車暫存嗎？')) { pendingQueue = []; renderQueueTable(); }
+}
 
-      // 先檢查文字中有無直接註記 (下午/打烊)
-      if ((storeStr && storeStr.includes('打烊')) || (dateStr && dateStr.includes('打烊'))) {
-        shiftName = '打烊';
-      } else if ((storeStr && storeStr.includes('下午')) || (dateStr && dateStr.includes('下午'))) {
-        shiftName = '下午';
-      } else if (timePart && timePart.includes(':')) {
-        // 💡 如果文字沒有，直接用時間點判斷：PM 6:00 (18:00) 之前為下午，之後為打烊
-        const hour = parseInt(timePart.split(':')[0], 10);
-        if (!isNaN(hour)) {
-          shiftName = (hour >= 18) ? '打烊' : '下午';
-        }
-      }
+async function submitBatch() {
+  if (pendingQueue.length === 0) return;
+  const currentShift = document.getElementById('work-shift-select').value;
+  if (!confirm(`確定要將【${currentActiveStore}】(${currentShift}) 的 ${pendingQueue.length} 筆叫貨資料送出嗎？`)) return;
 
-      // 3. 渲染對應樣式標籤
-      let shiftBadge = '';
-      if (shiftName === '打烊') {
-        shiftBadge = '<span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full text-xs font-bold border border-purple-300 ml-1.5">打烊</span>';
-      } else {
-        shiftBadge = '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-xs font-bold border border-amber-300 ml-1.5">下午</span>';
-      }
+  const submitBtn = document.getElementById('btn-submit-batch');
+  submitBtn.disabled = true;
+  submitBtn.innerText = '正在寫入雲端...';
 
-      return { date: formattedDate, shiftName, shiftBadge };
-    }
+  try {
+    const itemsData = pendingQueue.map(item => ({
+      store: `${currentActiveStore} (${currentShift})`,
+      category: item.category,
+      itemName: item.itemName,
+      quantity: item.quantity
+    }));
 
-    // 歷史紀錄表格渲染與篩選
-    function renderTable() {
-      const tbody = document.getElementById('table-body');
-      const filterDate = document.getElementById('filter-date').value;
-      const filterShift = document.getElementById('filter-shift').value;
-      const filterCat = document.getElementById('filter-cat').value;
+    await postFormBackground({ action: 'batchCreate', items: itemsData });
 
-      tbody.innerHTML = '';
+    alert(`🎉 【${currentActiveStore}】(${currentShift}) 的 ${pendingQueue.length} 筆叫貨項目已成功送出！`);
+    pendingQueue = [];
+    renderQueueTable();
+    fetchData();
+  } catch (err) {
+    alert('送出時發生問題，請刷新頁面再試。');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerText = '🚀 盤點確定送出';
+  }
+}
 
-      let filteredData = inventoryData.filter(d => d.store && d.store.includes(currentActiveStore));
+function parseDateAndShift(dateStr, storeStr) {
+  if (!dateStr) return { date: '-', shiftName: '下午', shiftBadge: '' };
 
-      // 1. 日期篩選
-      if (filterDate) {
-        filteredData = filteredData.filter(d => d.updatedAt && d.updatedAt.startsWith(filterDate));
-      }
-      
-      // 2. 類別篩選
-      if (filterCat) {
-        filteredData = filteredData.filter(d => d.category === filterCat);
-      }
+  const parts = dateStr.split(' ');
+  const datePart = parts[0] || '';
+  const timePart = parts[1] || '';
 
-      // 將資料帶入時間判斷邏輯處理
-      let preparedList = filteredData.map(item => {
-        const parsed = parseDateAndShift(item.updatedAt, item.store);
-        return { ...item, parsed };
-      });
+  let formattedDate = datePart;
+  const dParts = datePart.split('-');
+  if (dParts.length >= 3) formattedDate = `${dParts[1]}/${dParts[2]}`;
 
-      // 3. 時段篩選 (下午 / 打烊)
-      if (filterShift) {
-        preparedList = preparedList.filter(item => item.parsed.shiftName === filterShift);
-      }
+  let shiftName = '下午';
+  if ((storeStr && storeStr.includes('打烊')) || (dateStr && dateStr.includes('打烊'))) {
+    shiftName = '打烊';
+  } else if ((storeStr && storeStr.includes('下午')) || (dateStr && dateStr.includes('下午'))) {
+    shiftName = '下午';
+  } else if (timePart && timePart.includes(':')) {
+    const hour = parseInt(timePart.split(':')[0], 10);
+    if (!isNaN(hour)) shiftName = (hour >= 18) ? '打烊' : '下午';
+  }
 
-      if (!preparedList || preparedList.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">【${currentActiveStore}】查無符合條件的叫貨紀錄</td></tr>`;
-        return;
-      }
+  let shiftBadge = (shiftName === '打烊')
+    ? '<span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full text-xs font-bold border border-purple-300 ml-1.5">打烊</span>'
+    : '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-xs font-bold border border-amber-300 ml-1.5">下午</span>';
 
-      preparedList.forEach(item => {
-        const tr = document.createElement('tr');
-        tr.className = 'hover:bg-gray-50';
-        tr.innerHTML = `
-          <td class="p-3 font-medium text-gray-800 whitespace-nowrap">${item.itemName}</td>
-          <td class="p-3 text-center font-bold text-blue-600 whitespace-nowrap">${item.quantity}</td>
-          <td class="p-3 text-center text-gray-600 text-xs font-semibold whitespace-nowrap">
-            ${item.parsed.date} ${item.parsed.shiftBadge}
-          </td>
-          <td class="p-3 text-center whitespace-nowrap">
-            <button onclick="deleteItem('${item.id}')" class="bg-red-500 text-white px-2.5 py-1 rounded text-xs hover:bg-red-600 shadow-sm">刪除</button>
-          </td>
-        `;
-        tbody.appendChild(tr);
-      });
-    }
+  return { date: formattedDate, shiftName, shiftBadge };
+}
 
-    async function deleteItem(id) {
-      if (!confirm('確定要刪除這筆叫貨紀錄嗎？')) return;
+function renderTable() {
+  const tbody = document.getElementById('table-body');
+  const filterDate = document.getElementById('filter-date').value;
+  const filterShift = document.getElementById('filter-shift').value;
+  const filterCat = document.getElementById('filter-cat').value;
 
-      await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'delete', id })
-      });
+  tbody.innerHTML = '';
 
-      fetchData();
-    }
+  let filteredData = inventoryData.filter(d => d.store && d.store.includes(currentActiveStore));
 
-    async function addOnlyCategory() {
-      const category = document.getElementById('new-single-cat').value.trim();
-      if (!category) return alert('請輸入分類名稱！');
+  if (filterDate) filteredData = filteredData.filter(d => d.updatedAt && d.updatedAt.startsWith(filterDate));
+  if (filterCat) filteredData = filteredData.filter(d => d.category === filterCat);
 
-      await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'addCategory', store: currentActiveStore, category })
-      });
+  let preparedList = filteredData.map(item => ({ ...item, parsed: parseDateAndShift(item.updatedAt, item.store) }));
 
-      document.getElementById('new-single-cat').value = '';
-      await fetchCatalog();
-      alert(`已成功為【${currentActiveStore}】建立分類：「${category}」！`);
-    }
+  if (filterShift) preparedList = preparedList.filter(item => item.parsed.shiftName === filterShift);
 
-    async function addCatalogItem() {
-      const category = document.getElementById('catalog-cat-select').value;
-      const itemName = document.getElementById('new-item-name').value.trim();
-      if (!category || !itemName) return alert('請選擇分類並輸入品項名稱！');
+  if (!preparedList || preparedList.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">【${currentActiveStore}】查無符合條件的叫貨紀錄</td></tr>`;
+    return;
+  }
 
-      await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'addCatalog', store: currentActiveStore, category, itemName })
-      });
+  preparedList.forEach(item => {
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-gray-50';
+    tr.innerHTML = `
+      <td class="p-3 font-medium text-gray-800 whitespace-nowrap">${item.itemName}</td>
+      <td class="p-3 text-center font-bold text-blue-600 whitespace-nowrap">${item.quantity}</td>
+      <td class="p-3 text-center text-gray-600 text-xs font-semibold whitespace-nowrap">
+        ${item.parsed.date} ${item.parsed.shiftBadge}
+      </td>
+      <td class="p-3 text-center whitespace-nowrap">
+        <button onclick="deleteItem('${item.id}')" class="bg-red-500 text-white px-2.5 py-1 rounded text-xs hover:bg-red-600 shadow-sm">刪除</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
 
-      document.getElementById('new-item-name').value = '';
-      await fetchCatalog();
-      alert(`已成功將商品「${itemName}」加入【${currentActiveStore}】的「${category}」分類！`);
-    }
+async function deleteItem(id) {
+  if (!confirm('確定要刪除這筆叫貨紀錄嗎？')) return;
+  await postFormBackground({ action: 'delete', id });
+  fetchData();
+}
 
-    document.addEventListener('DOMContentLoaded', () => {
-      setDefaultDateAndShift();
-      openStoreModal();
-    });
-  </script>
+async function addOnlyCategory() {
+  const category = document.getElementById('new-single-cat').value.trim();
+  if (!category) return alert('請輸入分類名稱！');
+  await postFormBackground({ action: 'addCategory', store: currentActiveStore, category });
+  document.getElementById('new-single-cat').value = '';
+  await fetchCatalog();
+  alert(`已成功為【${currentActiveStore}】建立分類：「${category}」！`);
+}
+
+async function addCatalogItem() {
+  const category = document.getElementById('catalog-cat-select').value;
+  const itemName = document.getElementById('new-item-name').value.trim();
+  if (!category || !itemName) return alert('請選擇分類並輸入品項名稱！');
+  await postFormBackground({ action: 'addCatalog', store: currentActiveStore, category, itemName });
+  document.getElementById('new-item-name').value = '';
+  await fetchCatalog();
+  alert(`已成功將商品「${itemName}」加入【${currentActiveStore}】的「${category}」分類！`);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  setDefaultDateAndShift();
+  openStoreModal();
+});
+</script>
 </body>
 </html>
