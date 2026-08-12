@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>門市叫貨總表 (指定類別排序版)</title>
+  <title>門市叫貨總表 (鯛魚燒食材第二順位版)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style id="dynamic-font-style">
     :root {
@@ -94,7 +94,7 @@
         <h1 class="text-xl font-bold flex items-center gap-2">
           📊 門市叫貨總表 (極速點收版)
         </h1>
-        <p class="text-xs text-slate-300 mt-1">順序：潮州 ➔ 木崎 ➔ 東港 ➔ 萬丹 ➔ 仁愛 ➔ 屏東（類別：冷藏 ➔ 乾貨）</p>
+        <p class="text-xs text-slate-300 mt-1">門市：潮州 ➔ 木崎 ➔ 東港 ➔ 萬丹 ➔ 仁愛 ➔ 屏東（類別：冷藏 ➔ 鯛魚燒 ➔ 乾貨）</p>
       </div>
       <button onclick="window.print()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md">
         🖨️ 列印 6 欄 A4 總表
@@ -287,23 +287,26 @@
     }
 
     // 🌟 類別優先權判斷：
-    // 1: 甜品冷藏食材 (最前)
-    // 2: 甜品乾貨 (第二)
-    // 3: 其他類別 (後面)
+    // 1: 甜品冷藏食材 (第一順位)
+    // 2: 鯛魚燒食材 (第二順位)
+    // 3: 甜品乾貨 (第三順位)
+    // 4: 其他類別 (其他順位)
     function getCategoryPriority(categoryStr) {
-      if (!categoryStr) return 3;
+      if (!categoryStr) return 4;
       const cleanCat = String(categoryStr).trim();
       
       if (cleanCat.includes('甜品') && cleanCat.includes('冷藏')) {
         return 1;
-      } else if (cleanCat.includes('甜品') && cleanCat.includes('乾貨')) {
+      } else if (cleanCat.includes('鯛魚燒')) {
         return 2;
+      } else if (cleanCat.includes('甜品') && cleanCat.includes('乾貨')) {
+        return 3;
       } else if (cleanCat.includes('冷藏')) { // 備用相容
         return 1;
       } else if (cleanCat.includes('乾貨')) { // 備用相容
-        return 2;
+        return 3;
       }
-      return 3;
+      return 4;
     }
 
     function renderData() {
@@ -359,10 +362,11 @@
         const itemsObj = storeDataMap[storeName] || {};
         let itemNames = Object.keys(itemsObj);
 
-        // 🌟 多層次類別排序 logic：
-        // 第一名：甜品冷藏食材 (Priority 1)
-        // 第二名：甜品乾貨 (Priority 2)
-        // 第三名：其他 (Priority 3)
+        // 多層次類別排序 logic：
+        // 1: 甜品冷藏食材
+        // 2: 鯛魚燒食材
+        // 3: 甜品乾貨
+        // 4: 其他
         itemNames.sort((a, b) => {
           const pA = getCategoryPriority(itemsObj[a].category);
           const pB = getCategoryPriority(itemsObj[b].category);
@@ -382,12 +386,15 @@
             const pLevel = getCategoryPriority(itemData.category);
 
             // 背景標註樣式：
-            // 冷藏：琥珀黃 (Priority 1)
-            // 乾貨：淡藍/淡紫 (Priority 2)
+            // 1. 冷藏：琥珀黃 (Amber)
+            // 2. 鯛魚燒：橘色 (Orange)
+            // 3. 乾貨：淡藍/紫 (Sky)
             let rowClass = '';
             if (pLevel === 1) {
               rowClass = 'bg-amber-100/70 print:bg-transparent font-black text-amber-950';
             } else if (pLevel === 2) {
+              rowClass = 'bg-orange-100/70 print:bg-transparent font-bold text-orange-950';
+            } else if (pLevel === 3) {
               rowClass = 'bg-sky-100/60 print:bg-transparent font-bold text-sky-950';
             }
 
