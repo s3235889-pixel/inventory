@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>門市叫貨總表 (前端快取極速版)</title>
+  <title>門市叫貨總表 (極速點收版)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style id="dynamic-font-style">
     :root {
@@ -15,20 +15,6 @@
       min-height: 100%;
       overflow-x: hidden;
       overflow-y: auto;
-    }
-
-    #drawing-canvas {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      z-index: 40;
-      pointer-events: none;
-    }
-    #drawing-canvas.active {
-      pointer-events: auto;
-      cursor: crosshair;
     }
 
     @media print {
@@ -75,6 +61,7 @@
       }
     }
 
+    /* 動態字級樣式 */
     .dynamic-text-table th, 
     .dynamic-text-table td {
       font-size: var(--custom-font-size) !important;
@@ -85,54 +72,29 @@
     .dynamic-store-title {
       font-size: calc(var(--custom-font-size) * 1.05) !important;
     }
+
+    /* 勾選完成後的劃記/反白效果 */
+    .row-checked {
+      background-color: #e2e8f0 !important;
+      color: #94a3b8 !important;
+      text-decoration: line-through;
+    }
+    .row-checked td {
+      color: #94a3b8 !important;
+    }
   </style>
 </head>
 <body class="bg-slate-100 p-4 min-h-screen relative">
 
-  <!-- 全螢幕手繪畫布 -->
-  <canvas id="drawing-canvas"></canvas>
-
-  <!-- 浮動手繪工具面板 -->
-  <div id="draw-toolbar" class="fixed bottom-4 right-4 z-50 bg-slate-900/95 text-white p-3 rounded-2xl shadow-2xl no-print border border-slate-700 flex flex-wrap items-center gap-3 backdrop-blur-md transition-all">
-    <button id="toggle-draw-btn" onclick="toggleDrawingMode()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow">
-      🎨 開啟手繪標註
-    </button>
-
-    <div id="draw-controls" class="hidden flex items-center gap-3 border-l border-slate-700 pl-3">
-      <div class="flex items-center gap-1 bg-slate-800 p-1 rounded-lg">
-        <button onclick="setBrushType('pencil')" id="btn-pencil" class="px-2 py-1 text-xs font-bold rounded bg-indigo-600 text-white">✏️ 鉛筆</button>
-        <button onclick="setBrushType('highlighter')" id="btn-highlighter" class="px-2 py-1 text-xs font-bold rounded hover:bg-slate-700 text-slate-300">🖊️ 螢光筆</button>
-        <button onclick="setBrushType('eraser')" id="btn-eraser" class="px-2 py-1 text-xs font-bold rounded hover:bg-slate-700 text-slate-300">🧹 橡皮擦</button>
-      </div>
-
-      <div class="flex items-center gap-1.5">
-        <span class="text-[10px] text-slate-400 font-bold">粗細</span>
-        <input type="range" id="brush-size" min="1" max="30" value="3" oninput="updateBrushSize(this.value)" class="w-20 accent-indigo-500 cursor-pointer">
-        <span id="brush-size-val" class="text-xs font-mono w-5">3</span>
-      </div>
-
-      <div class="flex items-center gap-1">
-        <input type="color" id="brush-color" value="#ef4444" onchange="updateBrushColor(this.value)" class="w-7 h-7 rounded border-0 cursor-pointer bg-transparent">
-        <button onclick="setQuickColor('#ef4444')" class="w-5 h-5 rounded-full bg-red-500 border border-white/20"></button>
-        <button onclick="setQuickColor('#3b82f6')" class="w-5 h-5 rounded-full bg-blue-500 border border-white/20"></button>
-        <button onclick="setQuickColor('#facc15')" class="w-5 h-5 rounded-full bg-yellow-400 border border-white/20"></button>
-        <button onclick="setQuickColor('#10b981')" class="w-5 h-5 rounded-full bg-emerald-500 border border-white/20"></button>
-      </div>
-
-      <button onclick="clearCanvas()" class="bg-rose-600/80 hover:bg-rose-600 text-white text-xs px-2.5 py-1.5 rounded-lg font-bold transition">
-        🗑️ 清空
-      </button>
-    </div>
-  </div>
-
   <div class="max-w-[1400px] mx-auto space-y-3 print-area pb-12">
     
+    <!-- 頂部標題區塊 -->
     <div class="bg-slate-900 text-white p-4 rounded-2xl shadow-lg flex flex-wrap justify-between items-center gap-4 no-print">
       <div>
         <h1 class="text-xl font-bold flex items-center gap-2">
-          📊 門市叫貨總表 (前端快取極速版)
+          📊 門市叫貨總表 (極速點收版)
         </h1>
-        <p class="text-xs text-slate-300 mt-1">無需修改後端，切換日期/門市毫秒級秒開</p>
+        <p class="text-xs text-slate-300 mt-1">6 間門市並排單頁設計，支援品項勾選與反白劃記功能</p>
       </div>
       <button onclick="window.print()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md">
         🖨️ 列印 6 欄 A4 總表
@@ -143,7 +105,7 @@
     <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3 no-print">
       <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 items-center">
         
-        <!-- 1. 日期篩選 (直接調用 renderData 秒刷，不重新發請求) -->
+        <!-- 1. 日期篩選 -->
         <div>
           <label class="block text-xs font-bold text-slate-600 mb-1">📅 選擇日期</label>
           <input type="date" id="filter-date" onchange="renderData()" class="border p-2 rounded-lg w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
@@ -182,7 +144,7 @@
           <input type="range" id="font-size-range" min="8" max="30" value="12" step="0.5" oninput="adjustFontSize(this.value)" class="w-full accent-indigo-600 cursor-pointer">
         </div>
 
-        <!-- 5. 強制重新向雲端抓取 (清空快取) -->
+        <!-- 5. 強制同步數據 -->
         <div class="flex items-end">
           <button onclick="fetchCloudData(true)" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold p-2 rounded-lg border transition text-sm flex justify-center items-center gap-1">
             🔄 強制更新數據
@@ -218,165 +180,23 @@
     
     const TARGET_STORES = ['萬丹店(W)', '潮州店(C1)', '屏東店(P1)', '仁愛店(P2)', '木崎(C2)', '東港店(D)'];
 
-    // 全局資料快取與預解析結構
+    // 全局資料快取與本地快取 key
     let rawDataCache = null;
 
-    // ==========================================
-    // 🎨 手繪畫布 Engine
-    // ==========================================
-    let canvas, ctx;
-    let isDrawing = false;
-    let isDrawingMode = false;
-    let currentBrush = 'pencil'; 
-    let currentColor = '#ef4444';
-    let currentSize = 3;
-
-    function initCanvas() {
-      canvas = document.getElementById('drawing-canvas');
-      ctx = canvas.getContext('2d');
-      resizeCanvas();
-
-      window.addEventListener('resize', resizeCanvas);
-      canvas.addEventListener('mousedown', startDrawing);
-      canvas.addEventListener('mousemove', draw);
-      canvas.addEventListener('mouseup', stopDrawing);
-      canvas.addEventListener('mouseleave', stopDrawing);
-
-      canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
-      canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
-      canvas.addEventListener('touchend', stopDrawing);
-    }
-
-    function resizeCanvas() {
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = canvas.width;
-      tempCanvas.height = canvas.height;
-      const tempCtx = tempCanvas.getContext('2d');
-      if (canvas.width > 0 && canvas.height > 0) {
-        tempCtx.drawImage(canvas, 0, 0);
-      }
-
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-
-      if (tempCanvas.width > 0 && tempCanvas.height > 0) {
-        ctx.drawImage(tempCanvas, 0, 0);
-      }
-    }
-
-    function toggleDrawingMode() {
-      isDrawingMode = !isDrawingMode;
-      const btn = document.getElementById('toggle-draw-btn');
-      const controls = document.getElementById('draw-controls');
-
-      if (isDrawingMode) {
-        canvas.classList.add('active');
-        btn.innerHTML = '❌ 結束標註';
-        btn.classList.replace('bg-indigo-600', 'bg-slate-700');
-        controls.classList.remove('hidden');
-      } else {
-        canvas.classList.remove('active');
-        btn.innerHTML = '🎨 開啟手繪標註';
-        btn.classList.replace('bg-slate-700', 'bg-indigo-600');
-        controls.classList.add('hidden');
-      }
-    }
-
-    function setBrushType(type) {
-      currentBrush = type;
-      ['pencil', 'highlighter', 'eraser'].forEach(t => {
-        const b = document.getElementById(`btn-${t}`);
-        if (t === type) {
-          b.className = 'px-2 py-1 text-xs font-bold rounded bg-indigo-600 text-white';
-        } else {
-          b.className = 'px-2 py-1 text-xs font-bold rounded hover:bg-slate-700 text-slate-300';
-        }
-      });
-    }
-
-    function updateBrushSize(val) {
-      currentSize = val;
-      document.getElementById('brush-size-val').innerText = val;
-    }
-
-    function updateBrushColor(val) {
-      currentColor = val;
-    }
-
-    function setQuickColor(color) {
-      currentColor = color;
-      document.getElementById('brush-color').value = color;
-      if (currentBrush === 'eraser') setBrushType('pencil');
-    }
-
-    function clearCanvas() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
-
-    function getPos(e) {
-      return { x: e.clientX, y: e.clientY };
-    }
-
-    function startDrawing(e) {
-      if (!isDrawingMode) return;
-      isDrawing = true;
-      const pos = getPos(e);
-      ctx.beginPath();
-      ctx.moveTo(pos.x, pos.y);
-    }
-
-    function draw(e) {
-      if (!isDrawing || !isDrawingMode) return;
-      const pos = getPos(e);
-
-      ctx.lineWidth = currentSize;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
-      if (currentBrush === 'eraser') {
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.lineWidth = currentSize * 3;
-      } else if (currentBrush === 'highlighter') {
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.strokeStyle = currentColor + '66';
-        ctx.lineWidth = currentSize * 2.5;
-      } else {
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.strokeStyle = currentColor;
-      }
-
-      ctx.lineTo(pos.x, pos.y);
-      ctx.stroke();
-    }
-
-    function stopDrawing() {
-      if (isDrawing) {
-        ctx.closePath();
-        isDrawing = false;
-      }
-    }
-
-    function handleTouchStart(e) {
-      if (!isDrawingMode) return;
-      e.preventDefault();
-      const touch = e.touches[0];
-      startDrawing({ clientX: touch.clientX, clientY: touch.clientY });
-    }
-
-    function handleTouchMove(e) {
-      if (!isDrawingMode) return;
-      e.preventDefault();
-      const touch = e.touches[0];
-      draw({ clientX: touch.clientX, clientY: touch.clientY });
-    }
-
-    // ==========================================
-    // 📊 叫貨數據 前端快取與高效加載 Engine
-    // ==========================================
     document.addEventListener('DOMContentLoaded', () => {
       const today = new Date().toISOString().split('T')[0];
       document.getElementById('filter-date').value = today;
-      initCanvas();
+      
+      // 先從瀏覽器 LocalStorage 載入歷史快取（達成 0 秒立刻顯示畫面）
+      const localSaved = localStorage.getItem('order_data_cache');
+      if (localSaved) {
+        try {
+          rawDataCache = JSON.parse(localSaved);
+          renderData();
+        } catch (e) {}
+      }
+      
+      // 背景悄悄更新最新資料，不阻塞 UI
       fetchCloudData();
     });
 
@@ -390,27 +210,38 @@
       document.getElementById('print-timestamp').innerText = now.toLocaleString('zh-TW', { hour12: false });
     }
 
-    // 🌟 核心優化：引入快取機制，載入過一次後切換選項皆為 0 延遲
+    function toggleRowCheck(checkbox) {
+      const row = checkbox.closest('tr');
+      if (checkbox.checked) {
+        row.classList.add('row-checked');
+      } else {
+        row.classList.remove('row-checked');
+      }
+    }
+
+    // 快取機制加載雲端資料（加上 Timeout 逾時保護防卡死）
     async function fetchCloudData(forceRefresh = false) {
       const container = document.getElementById('data-container');
 
       if (!forceRefresh && rawDataCache !== null) {
         renderData();
-        return;
+      } else {
+        container.innerHTML = '<div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border">正在連線雲端資料庫...</div>';
       }
 
-      container.innerHTML = '<div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border">正在同步雲端資料，請稍候...</div>';
+      // 設置 10 秒 Timeout 防無止盡等待
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
       try {
-        const res = await fetch(`${API_URL}?t=${Date.now()}`);
+        const res = await fetch(`${API_URL}?t=${Date.now()}`, { signal: controller.signal });
+        clearTimeout(timeoutId);
         const result = await res.json();
         
-        // 將資料先做一次基礎解析優化後存入記憶體快取
         const list = result.data || [];
         rawDataCache = list.map(item => {
           const parsed = parseShiftInfo(item.updatedAt, item.store);
           
-          // 預先對齊門市
           let rawStore = item.store || '';
           let cleanRawStore = rawStore.replace(/\(下午\)|\(打烊\)/g, '').trim();
           let matchedStore = TARGET_STORES.find(target => {
@@ -421,9 +252,16 @@
           return { ...item, parsed, matchedStore };
         });
 
+        // 存入 LocalStorage 加速下次打開速度
+        try {
+          localStorage.setItem('order_data_cache', JSON.stringify(rawDataCache));
+        } catch (e) {}
+
         renderData();
       } catch (err) {
-        container.innerHTML = '<div class="col-span-full bg-white p-8 rounded-xl text-center text-red-500 border">資料載入失敗，請檢查網路連線。</div>';
+        if (rawDataCache === null) {
+          container.innerHTML = '<div class="col-span-full bg-white p-8 rounded-xl text-center text-red-500 border">雲端連線較慢或失敗，請點擊「強制更新數據」重試。</div>';
+        }
       }
     }
 
@@ -452,7 +290,6 @@
       return cleanCat.includes('甜品') || cleanCat.includes('冷藏');
     }
 
-    // 🌟 極速渲染：只對快取資料進行 O(N) 輕量過濾
     function renderData() {
       updateTimestamp();
       if (!rawDataCache) return;
@@ -465,25 +302,20 @@
       document.getElementById('summary-date').innerText = selectedDate || '全部日期';
       document.getElementById('summary-shift').innerText = selectedShift ? `${selectedShift}時段` : '全部時段';
 
-      // 初始化門市 HashMap
       const storeDataMap = {};
       TARGET_STORES.forEach(store => storeDataMap[store] = {});
 
-      // 高效過濾：只過濾當日與當前時段資料
       for (let i = 0; i < rawDataCache.length; i++) {
         const item = rawDataCache[i];
         
-        // 1. 日期過濾
         if (selectedDate && (!item.updatedAt || !item.updatedAt.startsWith(selectedDate))) {
           continue;
         }
 
-        // 2. 時段過濾
         if (selectedShift && item.parsed.shiftName !== selectedShift) {
           continue;
         }
 
-        // 3. 歸類門市數據
         if (item.matchedStore) {
           const itemName = item.itemName || '未知名稱';
           const qty = parseInt(item.quantity, 10) || 0;
@@ -526,7 +358,7 @@
 
         let rowsHtml = '';
         if (itemNames.length === 0) {
-          rowsHtml = `<tr><td colspan="3" class="text-center text-slate-400 py-2">無叫貨紀錄</td></tr>`;
+          rowsHtml = `<tr><td colspan="4" class="text-center text-slate-400 py-2">無叫貨紀錄</td></tr>`;
         } else {
           rowsHtml = itemNames.map((itemName, idx) => {
             const itemData = itemsObj[itemName];
@@ -534,10 +366,13 @@
             const rowClass = isPriority ? 'bg-amber-100/70 print:bg-transparent font-black text-amber-950' : '';
 
             return `
-              <tr class="border-b last:border-0 border-slate-200 ${rowClass}">
-                <td class="text-center text-slate-400">${idx + 1}</td>
+              <tr class="border-b last:border-0 border-slate-200 transition-colors ${rowClass}">
+                <td class="text-center text-slate-400 w-4">${idx + 1}</td>
                 <td class="font-bold text-slate-800 break-all">${itemName}</td>
-                <td class="text-right font-black text-indigo-700 pr-1">${itemData.qty}</td>
+                <td class="text-right font-black text-indigo-700 pr-1 w-8">${itemData.qty}</td>
+                <td class="text-center w-5">
+                  <input type="checkbox" onchange="toggleRowCheck(this)" class="w-3.5 h-3.5 accent-indigo-600 rounded cursor-pointer align-middle">
+                </td>
               </tr>
             `;
           }).join('');
@@ -555,6 +390,7 @@
                   <th class="text-center w-4">#</th>
                   <th>品項名稱</th>
                   <th class="text-right pr-1 w-8">數量</th>
+                  <th class="text-center w-5">確認</th>
                 </tr>
               </thead>
               <tbody>
