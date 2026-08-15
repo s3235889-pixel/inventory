@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>連鎖門市雲端盤點系統 (Supabase版)</title>
+<title>連鎖門市雲端盤點系統 (Supabase版 - 獨立補點收合區)</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <!-- 引入 Supabase 官方 SDK -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -41,11 +41,11 @@
 </div>
 
 <!-- 主要內容區域 -->
-<div class="max-w-4xl mx-auto space-y-6">
+<div class="max-w-4xl mx-auto space-y-5">
 <div class="bg-indigo-900 text-white p-4 rounded-xl shadow-md flex flex-wrap justify-between items-center gap-4">
 <div>
 <h1 class="text-xl font-bold">雲端盤點管理系統 (Supabase 雲端版)</h1>
-<p class="text-xs text-indigo-200">當前專屬資料庫：已開啟門市權限安全隔離 (資料庫動態授權)</p>
+<p class="text-xs text-indigo-200">當前專屬資料庫：已開啟門市權限安全隔離</p>
 </div>
 <div class="flex items-center gap-3">
 <div class="bg-indigo-800/90 px-3 py-1.5 rounded-lg border border-indigo-700 text-sm flex items-center gap-1.5">
@@ -58,44 +58,82 @@
 </div>
 </div>
 
-<!-- 區塊 1：管理分類與品項 -->
-<details class="bg-white rounded-xl shadow-md p-4 border border-blue-100">
-<summary class="font-semibold text-blue-600 cursor-pointer flex justify-between items-center">
+<!-- 區塊 1：管理分類與品項 (收合) -->
+<details class="bg-white rounded-xl shadow-sm p-4 border border-slate-200">
+<summary class="font-semibold text-slate-700 cursor-pointer flex justify-between items-center text-sm">
 <span>⚙️ 設定「<span class="target-store-text font-bold text-indigo-700">--</span>」專屬商品與分類 (items)</span>
-<span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">點擊展開</span>
+<span class="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded">點擊展開</span>
 </summary>
 <div class="mt-4 pt-3 border-t space-y-4">
 <div class="bg-gray-50 p-3 rounded-lg border">
 <label class="block text-xs font-bold text-gray-600 mb-2">Step 1：新增獨立/共通分類</label>
 <div class="flex gap-2">
-<input type="text" id="new-single-cat" placeholder="輸入新類別名稱 (例: 特調飲品類)" class="border p-2 rounded w-full">
-<button onclick="addOnlyCategory()" id="btn-add-cat-only" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 font-medium whitespace-nowrap">建立分類</button>
+<input type="text" id="new-single-cat" placeholder="輸入新類別名稱 (例: 特調飲品類)" class="border p-2 rounded w-full text-xs">
+<button onclick="addOnlyCategory()" id="btn-add-cat-only" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 font-medium whitespace-nowrap text-xs">建立分類</button>
 </div>
 </div>
 
 <div class="bg-gray-50 p-3 rounded-lg border">
 <label class="block text-xs font-bold text-gray-600 mb-2">Step 2：選擇分類並建立「<span class="target-store-text text-indigo-700">--</span>」商品</label>
 <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
-<select id="catalog-cat-select" class="border p-2 rounded w-full bg-white">
+<select id="catalog-cat-select" class="border p-2 rounded w-full bg-white text-xs">
 <option value="">-- 請先選擇分類 --</option>
 </select>
-<input type="text" id="new-item-name" placeholder="輸入品項名稱 (例: 限定抹茶冰淇淋)" class="border p-2 rounded w-full">
+<input type="text" id="new-item-name" placeholder="輸入品項名稱 (例: 限定抹茶冰淇淋)" class="border p-2 rounded w-full text-xs">
 <select id="item-store-scope" class="border p-2 rounded w-full bg-white text-xs font-bold">
 <option value="EXCLUSIVE">僅限此門市專屬</option>
 <option value="COMMON">全門市共通商品</option>
 </select>
-<button onclick="addCatalogItem()" id="btn-add-item" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 font-medium">新增商品</button>
+<button onclick="addCatalogItem()" id="btn-add-item" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 font-medium text-xs">新增商品</button>
 </div>
 </div>
 </div>
 </details>
 
-<!-- 區塊 2：點貨選擇區 -->
+<!-- 🌟 區塊 1.5：獨立收合 - 補點貨 / 叫貨日期調整專區 -->
+<details id="supplement-details" class="bg-rose-50/70 rounded-xl shadow-sm p-4 border border-rose-200">
+<summary class="font-bold text-rose-800 cursor-pointer flex justify-between items-center text-sm">
+<span class="flex items-center gap-1.5">
+  <span>⚡ 漏點補單 / 補點前日貨品專區</span>
+  <span id="supplement-status-tag" class="hidden text-[10px] bg-rose-600 text-white px-2 py-0.5 rounded-full font-black">補點中</span>
+</span>
+<span class="text-xs bg-white text-rose-700 border border-rose-200 px-2 py-1 rounded">點擊設定補點日期</span>
+</summary>
+<div class="mt-3 pt-3 border-t border-rose-200 space-y-3">
+  <p class="text-xs text-rose-600">如當天漏點貨，可在此指定將叫貨單補入指定日期與時段（例如補昨日打烊單）：</p>
+  <div class="flex flex-wrap items-center gap-3 bg-white p-3 rounded-lg border border-rose-200">
+    <div class="flex items-center gap-2">
+      <label class="text-xs font-bold text-slate-700">📅 歸屬叫貨日期：</label>
+      <input type="date" id="order-target-date" onchange="checkOrderDateNotice()" class="bg-slate-50 font-bold border border-slate-300 p-1.5 rounded text-xs text-slate-800 focus:outline-indigo-500">
+    </div>
+
+    <!-- 快捷按鈕 -->
+    <div class="flex items-center gap-1.5">
+      <button type="button" onclick="setOrderDateYesterday()" class="text-xs bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-1.5 rounded transition shadow-sm flex items-center gap-1">
+        ⚡ 快捷設為「昨日」
+      </button>
+      <button type="button" onclick="setOrderDateToday()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded border transition">
+        重設為「今日」
+      </button>
+    </div>
+  </div>
+</div>
+</details>
+
+<!-- 補點貨狀態警示橫幅 (常駐顯示防呆) -->
+<div id="supplement-notice" class="hidden bg-rose-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center justify-between shadow-md">
+  <span>⚠️ 目前處於【補點貨模式】：送出之叫貨單將歸入「<span id="notice-target-date" class="underline underline-offset-2"></span>」</span>
+  <button type="button" onclick="setOrderDateToday()" class="bg-white text-rose-700 hover:bg-rose-50 px-2.5 py-1 rounded text-[11px] font-black transition">
+    切回今日正常叫貨
+  </button>
+</div>
+
+<!-- 區塊 2：日常點貨選擇區 -->
 <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
 <div class="flex flex-wrap justify-between items-center gap-2">
 <h2 class="text-lg font-semibold text-gray-700">1. 選擇商品放入購物車 (<span class="target-store-text font-bold text-indigo-700">--</span>)</h2>
 <div class="flex items-center gap-2 bg-amber-50 p-1.5 px-3 rounded-lg border border-amber-200">
-<label class="text-xs font-bold text-amber-900 whitespace-nowrap">⏰ 當前點貨時段：</label>
+<label class="text-xs font-bold text-amber-900 whitespace-nowrap">⏰ 點貨時段：</label>
 <select id="work-shift-select" class="bg-white text-gray-800 font-bold px-2.5 py-1 rounded border text-xs focus:outline-none">
 <option value="下午">下午 (18:00前)</option>
 <option value="打烊">打烊 (18:00後)</option>
@@ -259,7 +297,7 @@ function getStoreSortWeight(storeName) {
   for (let i = 0; i < PREFERRED_STORE_ORDER.length; i++) {
     if (storeName.includes(PREFERRED_STORE_ORDER[i])) return i + 1;
   }
-  return 99; // 未在列表中的門市排在最後
+  return 99;
 }
 
 let currentActiveStore = '';
@@ -278,17 +316,55 @@ function getLocalTodayDate() {
   return `${y}-${m}-${d}`;
 }
 
+function getLocalYesterdayDate() {
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const y = yesterday.getFullYear();
+  const m = String(yesterday.getMonth() + 1).padStart(2, '0');
+  const d = String(yesterday.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function setOrderDateToday() {
+  const today = getLocalTodayDate();
+  document.getElementById('order-target-date').value = today;
+  const hours = new Date().getHours();
+  document.getElementById('work-shift-select').value = (hours < 18) ? '下午' : '打烊';
+  checkOrderDateNotice();
+}
+
+function setOrderDateYesterday() {
+  const yesterday = getLocalYesterdayDate();
+  document.getElementById('order-target-date').value = yesterday;
+  document.getElementById('work-shift-select').value = '打烊';
+  checkOrderDateNotice();
+}
+
+function checkOrderDateNotice() {
+  const targetDate = document.getElementById('order-target-date').value;
+  const today = getLocalTodayDate();
+  const noticeBox = document.getElementById('supplement-notice');
+  const noticeText = document.getElementById('notice-target-date');
+  const tag = document.getElementById('supplement-status-tag');
+
+  if (targetDate && targetDate !== today) {
+    noticeText.innerText = targetDate;
+    noticeBox.classList.remove('hidden');
+    tag.classList.remove('hidden');
+  } else {
+    noticeBox.classList.add('hidden');
+    tag.classList.add('hidden');
+  }
+}
+
 function setDefaultDateAndShift() {
   const today = getLocalTodayDate();
   const filterDateInput = document.getElementById('filter-date');
   if (filterDateInput && !filterDateInput.value) filterDateInput.value = today;
 
-  const hours = new Date().getHours();
-  const shiftSelect = document.getElementById('work-shift-select');
-  if (shiftSelect) shiftSelect.value = (hours < 18) ? '下午' : '打烊';
+  setOrderDateToday();
 }
 
-// 🌟 從資料庫載入門市清單並依照「萬丹、潮州、屏東、仁愛、木崎、東港」排序
+// 從資料庫載入門市清單並依照「萬丹、潮州、屏東、仁愛、木崎、東港」排序
 async function loadStoreListFromDB() {
   const select = document.getElementById('modal-store-select');
   try {
@@ -298,7 +374,6 @@ async function loadStoreListFromDB() {
 
     if (error) throw error;
 
-    // 依指定優先順序排序，若權重相同則依原資料庫 sort_order
     stores.sort((a, b) => {
       const weightA = getStoreSortWeight(a.store_name);
       const weightB = getStoreSortWeight(b.store_name);
@@ -334,7 +409,6 @@ async function openStoreModal() {
   await loadStoreListFromDB();
 }
 
-// 透過資料庫欄位進行密碼驗證
 async function confirmStoreSelection() {
   const selectedStore = document.getElementById('modal-store-select').value;
   const inputPassword = document.getElementById('store-password-input').value.trim();
@@ -582,12 +656,19 @@ function clearQueue() {
   if (confirm('確定要清空整個購物車暫存嗎？')) { pendingQueue = []; renderQueueTable(); }
 }
 
+// 送出叫貨單至 Supabase (支援自訂歸屬日期)
 async function submitBatch() {
   if (pendingQueue.length === 0) return;
   const currentShift = document.getElementById('work-shift-select').value;
+  const orderTargetDate = document.getElementById('order-target-date').value || getLocalTodayDate();
   const today = getLocalTodayDate();
 
-  if (!confirm(`確定要將【${currentActiveStore}】(${currentShift}) 的 ${pendingQueue.length} 筆叫貨資料送出嗎？`)) return;
+  const isSupplement = (orderTargetDate !== today);
+  const confirmMsg = isSupplement
+    ? `⚠️【補點貨確認】\n確定要將【${currentActiveStore}】歸屬日期【${orderTargetDate}】(${currentShift}) 的 ${pendingQueue.length} 筆叫貨資料送出嗎？`
+    : `確定要將【${currentActiveStore}】(${orderTargetDate} ${currentShift}) 的 ${pendingQueue.length} 筆叫貨資料送出嗎？`;
+
+  if (!confirm(confirmMsg)) return;
 
   const submitBtn = document.getElementById('btn-submit-batch');
   submitBtn.disabled = true;
@@ -598,7 +679,7 @@ async function submitBatch() {
       .from('orders')
       .insert({
         store_id: currentStoreId,
-        order_date: today,
+        order_date: orderTargetDate,
         shift: currentShift
       })
       .select();
@@ -617,10 +698,14 @@ async function submitBatch() {
     const { error: itemsErr } = await supabaseClient.from('order_items').insert(payload);
     if (itemsErr) throw itemsErr;
 
-    alert(`🎉 【${currentActiveStore}】(${currentShift}) 的 ${pendingQueue.length} 筆叫貨項目已成功送出！`);
+    alert(`🎉 【${currentActiveStore}】歸屬【${orderTargetDate}】(${currentShift}) 的 ${pendingQueue.length} 筆叫貨項目已成功送出！`);
     pendingQueue = [];
     renderQueueTable();
+
+    // 自動切換下方歷史日期以供即時確認
+    document.getElementById('filter-date').value = orderTargetDate;
     fetchData();
+
   } catch (err) {
     console.error(err);
     alert(`送出失敗：${err.message}`);
