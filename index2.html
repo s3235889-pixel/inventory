@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>連鎖門市雲端盤點系統 (Supabase版)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- 引入 Supabase 官方 SDK -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-slate-100 p-4 md:p-6 min-h-screen">
+
+<!-- 門市進入/密碼驗證彈窗 -->
+<div id="store-modal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+<div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center space-y-5 border border-gray-100">
+<div class="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto text-2xl font-bold">
+🔒
+</div>
+<div>
+<h2 class="text-2xl font-bold text-gray-800">門市身份驗證</h2>
+<p class="text-sm text-gray-500 mt-1">請選擇您的門市並輸入授權密碼以進入盤點系統</p>
+</div>
+
+<div class="space-y-4 text-left">
+<div>
+<label class="block text-xs font-bold text-gray-600 mb-1">選擇門市</label>
+<select id="modal-store-select" class="w-full bg-gray-50 border border-gray-300 text-gray-800 font-bold p-3 rounded-xl text-base focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+<option value="">載入門市清單中...</option>
+</select>
+</div>
+
+<div>
+<label class="block text-xs font-bold text-gray-600 mb-1">門市授權密碼</label>
+<input type="password" id="store-password-input" placeholder="請輸入 4 位數門市密碼" class="w-full bg-gray-50 border border-gray-300 text-gray-800 font-bold p-3 rounded-xl text-base focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+</div>
+<button id="btn-login-submit" onclick="confirmStoreSelection()" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition shadow-lg shadow-indigo-200">
+驗證密碼並進入盤點系統 ➔
+</button>
+</div>
+</div>
+</div>
+
+<!-- 主要內容區域 -->
+<div class="max-w-4xl mx-auto space-y-6">
+<div class="bg-indigo-900 text-white p-4 rounded-xl shadow-md flex flex-wrap justify-between items-center gap-4">
+<div>
+<h1 class="text-xl font-bold">雲端盤點管理系統 (Supabase 雲端版)</h1>
+<p class="text-xs text-indigo-200">當前專屬資料庫：已開啟門市權限安全隔離 (資料庫動態授權)</p>
+</div>
+<div class="flex items-center gap-3">
+<div class="bg-indigo-800/90 px-3 py-1.5 rounded-lg border border-indigo-700 text-sm flex items-center gap-1.5">
+<span class="text-xs text-indigo-300">📍 當前門市：</span>
+<span id="current-store-display" class="font-bold text-amber-300">未登入</span>
+</div>
+<button onclick="openStoreModal()" class="text-xs bg-indigo-700 hover:bg-indigo-600 text-indigo-100 px-3 py-2 rounded-lg border border-indigo-500 transition">
+🔒 切換/重新驗證門市
+</button>
+</div>
+</div>
+
+<!-- 區塊 1：管理分類與品項 -->
+<details class="bg-white rounded-xl shadow-md p-4 border border-blue-100">
+<summary class="font-semibold text-blue-600 cursor-pointer flex justify-between items-center">
+<span>⚙️ 設定「<span class="target-store-text font-bold text-indigo-700">--</span>」專屬商品與分類 (items)</span>
+<span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">點擊展開</span>
+</summary>
+<div class="mt-4 pt-3 border-t space-y-4">
+<div class="bg-gray-50 p-3 rounded-lg border">
+<label class="block text-xs font-bold text-gray-600 mb-2">Step 1：新增獨立/共通分類</label>
+<div class="flex gap-2">
+<input type="text" id="new-single-cat" placeholder="輸入新類別名稱 (例: 特調飲品類)" class="border p-2 rounded w-full">
+<button onclick="addOnlyCategory()" id="btn-add-cat-only" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 font-medium whitespace-nowrap">建立分類</button>
+</div>
+</div>
+
+<div class="bg-gray-50 p-3 rounded-lg border">
+<label class="block text-xs font-bold text-gray-600 mb-2">Step 2：選擇分類並建立「<span class="target-store-text text-indigo-700">--</span>」商品</label>
+<div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+<select id="catalog-cat-select" class="border p-2 rounded w-full bg-white">
+<option value="">-- 請先選擇分類 --</option>
+</select>
+<input type="text" id="new-item-name" placeholder="輸入品項名稱 (例: 限定抹茶冰淇淋)" class="border p-2 rounded w-full">
+<select id="item-store-scope" class="border p-2 rounded w-full bg-white text-xs font-bold">
+<option value="EXCLUSIVE">僅限此門市專屬</option>
+<option value="COMMON">全門市共通商品</option>
+</select>
+<button onclick="addCatalogItem()" id="btn-add-item" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 font-medium">新增商品</button>
+</div>
+</div>
+</div>
+</details>
+
+<!-- 區塊 2：點貨選擇區 -->
+<div class="bg-white p-6 rounded-xl shadow-md space-y-4">
+<div class="flex flex-wrap justify-between items-center gap-2">
+<h2 class="text-lg font-semibold text-gray-700">1. 選擇商品放入購物車 (<span class="target-store-text font-bold text-indigo-700">--</span>)</h2>
+<div class="flex items-center gap-2 bg-amber-50 p-1.5 px-3 rounded-lg border border-amber-200">
+<label class="text-xs font-bold text-amber-900 whitespace-nowrap">⏰ 當前點貨時段：</label>
+<select id="work-shift-select" class="bg-white text-gray-800 font-bold px-2.5 py-1 rounded border text-xs focus:outline-none">
+<option value="下午">下午 (18:00前)</option>
+<option value="打烊">打烊 (18:00後)</option>
+</select>
+</div>
+</div>
+
+<div>
+<label class="block text-xs font-bold text-gray-600 mb-1">🔎 關鍵字快速搜尋商品</label>
+<input
+type="text"
+id="item-search-input"
+oninput="filterItemDropdown()"
+placeholder="輸入商品名稱關鍵字 (例如: 豚骨、高湯、麵...)"
+class="border p-2.5 rounded-lg w-full bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition text-sm"
+>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+<div>
+<label class="block text-xs font-bold text-gray-500 mb-1">依類別篩選</label>
+<select id="item-cat" onchange="filterItemDropdown()" class="border p-2 rounded w-full bg-gray-50 text-sm">
+<option value="">全部類別</option>
+</select>
+</div>
+
+<div>
+<label class="block text-xs font-bold text-gray-500 mb-1">選擇商品</label>
+<select id="item-name-select" class="border p-2 rounded w-full text-sm">
+<option value="">請先驗證並進入門市...</option>
+</select>
+</div>
+
+<div>
+<label class="block text-xs font-bold text-gray-500 mb-1">盤點數量</label>
+<select id="item-qty" class="border p-2 rounded w-full bg-white font-medium text-sm">
+<option value="1">1</option><option value="2">2</option><option value="3">3</option>
+<option value="4">4</option><option value="5">5</option><option value="6">6</option>
+<option value="7">7</option><option value="8">8</option><option value="9">9</option>
+<option value="10">10</option><option value="11">11</option><option value="12">12</option>
+<option value="13">13</option><option value="14">14</option><option value="15">15</option>
+<option value="16">16</option><option value="17">17</option><option value="18">18</option>
+<option value="19">19</option><option value="20">20</option>
+</select>
+</div>
+
+<div class="flex items-end">
+<button onclick="addToQueue()" class="bg-amber-500 text-white px-4 py-2 rounded w-full hover:bg-amber-600 font-medium h-[42px] shadow flex justify-center items-center gap-1 text-sm">
+🛒 放入暫存購物車
+</button>
+</div>
+</div>
+</div>
+
+<!-- 區塊 3：購物車預覽區 -->
+<div class="bg-amber-50/60 border-2 border-amber-300 p-6 rounded-xl shadow-sm space-y-4">
+<div class="flex flex-wrap justify-between items-center gap-2">
+<div class="flex items-center gap-2">
+<h2 class="text-lg font-bold text-amber-900 flex items-center gap-1">
+🛒 2. 待送出盤點清單 (<span class="target-store-text font-bold text-indigo-700">--</span>)
+</h2>
+<span id="queue-count" class="bg-amber-200 text-amber-900 text-xs px-2.5 py-0.5 rounded-full font-bold">0 筆項目</span>
+</div>
+<div class="flex items-center gap-2">
+<button onclick="clearQueue()" id="btn-clear-queue" class="text-xs bg-white text-gray-600 hover:text-red-600 px-3 py-2 rounded border border-gray-300 transition hidden">
+🗑️ 清空購物車
+</button>
+<button onclick="submitBatch()" id="btn-submit-batch" class="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg font-bold shadow-md shadow-red-200 transition disabled:opacity-40 disabled:hover:bg-red-600" disabled>
+🚀 盤點確定送出
+</button>
+</div>
+</div>
+
+<div class="overflow-x-auto bg-white rounded-lg border border-amber-200">
+<table class="min-w-full border-collapse">
+<thead>
+<tr class="bg-amber-100/70 text-left text-sm font-semibold text-amber-900 border-b">
+<th class="p-3 whitespace-nowrap">品項名稱</th>
+<th class="p-3 w-32 whitespace-nowrap">數量 (可修改)</th>
+<th class="p-3 text-center w-24 whitespace-nowrap">操作</th>
+</tr>
+</thead>
+<tbody id="queue-table-body" class="divide-y divide-gray-100 text-sm text-gray-700">
+<tr><td colspan="3" class="p-4 text-center text-gray-400">目前購物車是空的。</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+
+<!-- 區塊 4：歷史紀錄查詢區 -->
+<div class="bg-white p-6 rounded-xl shadow-md space-y-4">
+<div class="border-b pb-3 flex flex-wrap justify-between items-center gap-3">
+<div>
+<h2 class="text-lg font-bold text-gray-800">🔍 3. 「<span class="target-store-text font-bold text-indigo-700">--</span>」專屬叫貨歷史紀錄</h2>
+<p class="text-xs text-gray-400 mt-0.5">預設極速讀取當日紀錄，切換日期可加載指定歷史資料</p>
+</div>
+<div class="flex items-center gap-2">
+<button id="btn-batch-delete" onclick="deleteSelectedItems()" class="text-xs bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-2 rounded-lg shadow transition hidden flex items-center gap-1">
+🗑️ 批量刪除 (0)
+</button>
+<button onclick="fetchData()" class="text-xs bg-gray-100 border px-3 py-2 rounded-lg hover:bg-gray-200 flex items-center gap-1">🔄 重新整理資料</button>
+</div>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 p-3 rounded-lg border">
+<div>
+<label class="block text-xs font-bold text-gray-600 mb-1">📅 選擇叫貨日期</label>
+<input type="date" id="filter-date" onchange="fetchData()" class="border p-2 rounded w-full text-sm bg-white">
+</div>
+
+<div>
+<label class="block text-xs font-bold text-gray-600 mb-1">⏰ 篩選時段</label>
+<select id="filter-shift" onchange="renderTable()" class="border p-2 rounded w-full text-sm bg-white font-medium">
+<option value="">全部時段</option>
+<option value="下午">下午 (18:00前)</option>
+<option value="打烊">打烊 (18:00後)</option>
+</select>
+</div>
+
+<div>
+<label class="block text-xs font-bold text-gray-600 mb-1">🏷️ 篩選類別</label>
+<select id="filter-cat" onchange="renderTable()" class="border p-2 rounded w-full text-sm bg-white">
+<option value="">全部類別</option>
+</select>
+</div>
+</div>
+
+<div class="overflow-x-auto">
+<table class="min-w-full border-collapse border border-gray-200">
+<thead>
+<tr class="bg-gray-100 text-left text-sm font-semibold text-gray-600 border-b">
+<th class="p-3 text-center w-10 whitespace-nowrap">
+<input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAll(this.checked)" class="w-4 h-4 text-indigo-600 rounded cursor-pointer">
+</th>
+<th class="p-3 whitespace-nowrap">品項名稱</th>
+<th class="p-3 text-center whitespace-nowrap">叫貨數量</th>
+<th class="p-3 text-center whitespace-nowrap">叫貨日期與時段</th>
+<th class="p-3 text-center whitespace-nowrap">操作</th>
+</tr>
+</thead>
+<tbody id="table-body" class="divide-y divide-gray-200 text-sm text-gray-700">
+<tr><td colspan="5" class="p-4 text-center text-gray-400">資料載入中...</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+
+</div>
+
+<script>
+// 🔑 Supabase 連線參數
+const SUPABASE_URL = 'https://rjetwgrelmvciatouwiw.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_Zvf4B53wK4tXQAIWOGiaYQ_KSxVO5MZ';
+
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// 🌟 指定門市自訂排序順序：萬丹 -> 潮州 -> 屏東 -> 仁愛 -> 木崎 -> 東港
+const PREFERRED_STORE_ORDER = ['萬丹', '潮州', '屏東', '仁愛', '木崎', '東港'];
+
+function getStoreSortWeight(storeName) {
+  for (let i = 0; i < PREFERRED_STORE_ORDER.length; i++) {
+    if (storeName.includes(PREFERRED_STORE_ORDER[i])) return i + 1;
+  }
+  return 99; // 未在列表中的門市排在最後
+}
+
+let currentActiveStore = '';
+let currentStoreId = null;
+let storeMap = {};        // { '萬丹店(W)': { storeId: 4, password: '...' } }
+let categoryMap = {};     // { '甜品冷藏食材': category_id }
+let rawCatalog = [];      // 品項目錄
+let inventoryData = [];   // 當前歷史紀錄
+let pendingQueue = [];    // 購物車暫存
+
+function getLocalTodayDate() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function setDefaultDateAndShift() {
+  const today = getLocalTodayDate();
+  const filterDateInput = document.getElementById('filter-date');
+  if (filterDateInput && !filterDateInput.value) filterDateInput.value = today;
+
+  const hours = new Date().getHours();
+  const shiftSelect = document.getElementById('work-shift-select');
+  if (shiftSelect) shiftSelect.value = (hours < 18) ? '下午' : '打烊';
+}
+
+// 🌟 從資料庫載入門市清單並依照「萬丹、潮州、屏東、仁愛、木崎、東港」排序
+async function loadStoreListFromDB() {
+  const select = document.getElementById('modal-store-select');
+  try {
+    const { data: stores, error } = await supabaseClient
+      .from('stores')
+      .select('store_id, store_name, password, sort_order');
+
+    if (error) throw error;
+
+    // 依指定優先順序排序，若權重相同則依原資料庫 sort_order
+    stores.sort((a, b) => {
+      const weightA = getStoreSortWeight(a.store_name);
+      const weightB = getStoreSortWeight(b.store_name);
+      if (weightA !== weightB) return weightA - weightB;
+      return (a.sort_order || 0) - (b.sort_order || 0);
+    });
+
+    storeMap = {};
+    select.innerHTML = '<option value="">-- 請選擇門市 --</option>';
+
+    stores.forEach(s => {
+      storeMap[s.store_name] = {
+        storeId: s.store_id,
+        password: String(s.password || '').trim()
+      };
+      select.innerHTML += `<option value="${s.store_name}">${s.store_name}</option>`;
+    });
+
+  } catch (err) {
+    console.error('門市清單載入失敗:', err);
+    select.innerHTML = '<option value="">門市清單載入失敗，請確認網路</option>';
+  }
+}
+
+async function openStoreModal() {
+  if (pendingQueue.length > 0) {
+    if (!confirm('切換門市將會清空目前購物車未送出的暫存項目，確定要切換嗎？')) return;
+    pendingQueue = [];
+    renderQueueTable();
+  }
+  document.getElementById('store-password-input').value = '';
+  document.getElementById('store-modal').classList.remove('hidden');
+  await loadStoreListFromDB();
+}
+
+// 透過資料庫欄位進行密碼驗證
+async function confirmStoreSelection() {
+  const selectedStore = document.getElementById('modal-store-select').value;
+  const inputPassword = document.getElementById('store-password-input').value.trim();
+
+  if (!selectedStore) return alert('請選擇門市！');
+  if (!inputPassword) return alert('請輸入門市授權密碼！');
+
+  const storeInfo = storeMap[selectedStore];
+
+  if (!storeInfo) {
+    return alert('查無該門市資訊，請重新整理！');
+  }
+
+  if (storeInfo.password !== inputPassword) {
+    alert('❌ 密碼錯誤！請重新確認該門市之授權密碼。');
+    document.getElementById('store-password-input').value = '';
+    return;
+  }
+
+  currentActiveStore = selectedStore;
+  currentStoreId = storeInfo.storeId;
+
+  document.getElementById('current-store-display').innerText = selectedStore;
+  document.querySelectorAll('.target-store-text').forEach(el => el.innerText = selectedStore);
+  document.getElementById('store-modal').classList.add('hidden');
+  document.getElementById('store-password-input').value = '';
+
+  setDefaultDateAndShift();
+  await loadAllData();
+}
+
+async function loadAllData() {
+  if (!currentActiveStore) return;
+  const tbody = document.getElementById('table-body');
+  tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-400">正在連接 Supabase 載入數據...</td></tr>`;
+
+  try {
+    await fetchCategories();
+    await fetchCatalog();
+    await fetchData();
+  } catch (err) {
+    console.error(err);
+    tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500 font-bold">載入失敗：${err.message}</td></tr>`;
+  }
+}
+
+async function fetchCategories() {
+  const { data: categories, error } = await supabaseClient
+    .from('categories')
+    .select('*')
+    .order('priority', { ascending: true });
+
+  if (!error && categories) {
+    categoryMap = {};
+    categories.forEach(c => categoryMap[c.category_name] = c.category_id);
+    updateCategoryOptions(categories);
+  }
+}
+
+async function fetchCatalog() {
+  let query = supabaseClient
+    .from('items')
+    .select(`
+      item_id,
+      item_name,
+      store_id,
+      categories ( category_id, category_name, priority )
+    `);
+
+  if (currentStoreId) {
+    query = query.or(`store_id.eq.${currentStoreId},store_id.is.null`);
+  }
+
+  const { data, error } = await query;
+
+  if (!error && data) {
+    rawCatalog = data.map(item => ({
+      itemId: item.item_id,
+      itemName: item.item_name,
+      categoryId: item.categories?.category_id,
+      categoryName: item.categories?.category_name || '未分類',
+      priority: item.categories?.priority || 4,
+      isCommon: item.store_id === null
+    }));
+
+    filterItemDropdown();
+  }
+}
+
+async function fetchData() {
+  const tbody = document.getElementById('table-body');
+  const targetDate = document.getElementById('filter-date').value;
+  tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-400">載入【${currentActiveStore}】(${targetDate}) 紀錄中...</td></tr>`;
+
+  try {
+    const { data, error } = await supabaseClient
+      .from('order_items')
+      .select(`
+        order_item_id,
+        quantity,
+        is_checked,
+        orders!inner (
+          order_id,
+          order_date,
+          shift,
+          store_id
+        ),
+        items!inner (
+          item_id,
+          item_name,
+          categories ( category_name )
+        )
+      `)
+      .eq('orders.store_id', currentStoreId)
+      .eq('orders.order_date', targetDate);
+
+    if (error) throw error;
+
+    inventoryData = (data || []).map(row => ({
+      id: row.order_item_id,
+      itemName: row.items.item_name,
+      categoryName: row.items.categories?.category_name || '',
+      quantity: row.quantity,
+      orderDate: row.orders.order_date,
+      shift: row.orders.shift
+    }));
+
+    renderTable();
+  } catch (err) {
+    console.error(err);
+    tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500 font-bold">載入失敗：${err.message}</td></tr>`;
+  }
+}
+
+function updateCategoryOptions(categoriesList) {
+  const catSelect = document.getElementById('item-cat');
+  const catalogCatSelect = document.getElementById('catalog-cat-select');
+  const filterCat = document.getElementById('filter-cat');
+
+  if (!categoriesList || categoriesList.length === 0) {
+    catSelect.innerHTML = '<option value="">(無可用類別)</option>';
+    catalogCatSelect.innerHTML = '<option value="">-- 無類別，請先建立 --</option>';
+    filterCat.innerHTML = '<option value="">全部類別</option>';
+  } else {
+    const buildOptions = (firstText) => `<option value="">${firstText}</option>${categoriesList.map(c => `<option value="${c.category_name}">${c.category_name}</option>`).join('')}`;
+    catSelect.innerHTML = buildOptions('全部類別');
+    catalogCatSelect.innerHTML = buildOptions('-- 請選擇分類 --');
+    filterCat.innerHTML = buildOptions('全部類別');
+  }
+}
+
+function filterItemDropdown() {
+  const selectedCat = document.getElementById('item-cat').value;
+  const searchKeyword = (document.getElementById('item-search-input')?.value || '').trim().toLowerCase();
+  const itemSelect = document.getElementById('item-name-select');
+
+  let storeItems = rawCatalog;
+  if (selectedCat) storeItems = storeItems.filter(i => i.categoryName === selectedCat);
+  if (searchKeyword) storeItems = storeItems.filter(i => i.itemName.toLowerCase().includes(searchKeyword));
+
+  storeItems.sort((a, b) => a.priority - b.priority);
+
+  if (storeItems.length === 0) {
+    itemSelect.innerHTML = searchKeyword
+      ? `<option value="">-- 查無包含「${searchKeyword}」的商品 --</option>`
+      : `<option value="">-- 【${currentActiveStore}】尚無可叫貨商品 --</option>`;
+    return;
+  }
+
+  itemSelect.innerHTML = '<option value="">-- 請選擇商品 --</option>' +
+    storeItems.map(i => `<option value="${i.itemName}" data-id="${i.itemId}" data-cat="${i.categoryName}">${i.itemName}</option>`).join('');
+}
+
+function addToQueue() {
+  const itemSelect = document.getElementById('item-name-select');
+  const itemName = itemSelect.value;
+  const selectedOption = itemSelect.options[itemSelect.selectedIndex];
+  const itemId = selectedOption ? selectedOption.getAttribute('data-id') : null;
+  const category = selectedOption ? selectedOption.getAttribute('data-cat') || '未分類' : '未分類';
+  const quantity = document.getElementById('item-qty').value;
+
+  if (!itemName || itemName.startsWith('--')) return alert('請先選擇正確的商品！');
+
+  const existingIndex = pendingQueue.findIndex(q => q.itemId === itemId);
+  if (existingIndex > -1) {
+    pendingQueue[existingIndex].quantity = quantity;
+  } else {
+    pendingQueue.push({ itemId, category, itemName, quantity });
+  }
+
+  document.getElementById('item-qty').value = "1";
+  document.getElementById('item-search-input').value = "";
+  filterItemDropdown();
+  renderQueueTable();
+}
+
+function generateQtyOptionsHTML(selectedQty) {
+  let options = '';
+  for (let i = 1; i <= 20; i++) {
+    options += `<option value="${i}" ${Number(selectedQty) === i ? 'selected' : ''}>${i}</option>`;
+  }
+  return options;
+}
+
+function renderQueueTable() {
+  const tbody = document.getElementById('queue-table-body');
+  const submitBtn = document.getElementById('btn-submit-batch');
+  const clearBtn = document.getElementById('btn-clear-queue');
+  const countLabel = document.getElementById('queue-count');
+
+  countLabel.innerText = `${pendingQueue.length} 筆項目`;
+  tbody.innerHTML = '';
+
+  if (pendingQueue.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-400">目前購物車是空的。</td></tr>';
+    submitBtn.disabled = true;
+    clearBtn.classList.add('hidden');
+    return;
+  }
+
+  submitBtn.disabled = false;
+  clearBtn.classList.remove('hidden');
+
+  pendingQueue.forEach((item, index) => {
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-amber-50';
+    tr.innerHTML = `
+      <td class="p-3 font-medium text-gray-800 whitespace-nowrap">${item.itemName}</td>
+      <td class="p-3">
+        <select onchange="updateQueueQty(${index}, this.value)" class="border px-2 py-1 rounded w-20 text-amber-900 font-bold bg-white text-center cursor-pointer">
+          ${generateQtyOptionsHTML(item.quantity)}
+        </select>
+      </td>
+      <td class="p-3 text-center">
+        <button onclick="removeFromQueue(${index})" class="text-red-500 hover:text-red-700 text-xs bg-red-50 px-2 py-1 rounded border border-red-200">移除</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function updateQueueQty(index, newQty) { pendingQueue[index].quantity = newQty; }
+function removeFromQueue(index) { pendingQueue.splice(index, 1); renderQueueTable(); }
+function clearQueue() {
+  if (confirm('確定要清空整個購物車暫存嗎？')) { pendingQueue = []; renderQueueTable(); }
+}
+
+async function submitBatch() {
+  if (pendingQueue.length === 0) return;
+  const currentShift = document.getElementById('work-shift-select').value;
+  const today = getLocalTodayDate();
+
+  if (!confirm(`確定要將【${currentActiveStore}】(${currentShift}) 的 ${pendingQueue.length} 筆叫貨資料送出嗎？`)) return;
+
+  const submitBtn = document.getElementById('btn-submit-batch');
+  submitBtn.disabled = true;
+  submitBtn.innerText = '正在寫入 Supabase...';
+
+  try {
+    const { data: orderData, error: orderErr } = await supabaseClient
+      .from('orders')
+      .insert({
+        store_id: currentStoreId,
+        order_date: today,
+        shift: currentShift
+      })
+      .select();
+
+    if (orderErr) throw orderErr;
+
+    const orderId = orderData[0].order_id;
+
+    const payload = pendingQueue.map(item => ({
+      order_id: orderId,
+      item_id: item.itemId,
+      quantity: parseInt(item.quantity, 10),
+      is_checked: false
+    }));
+
+    const { error: itemsErr } = await supabaseClient.from('order_items').insert(payload);
+    if (itemsErr) throw itemsErr;
+
+    alert(`🎉 【${currentActiveStore}】(${currentShift}) 的 ${pendingQueue.length} 筆叫貨項目已成功送出！`);
+    pendingQueue = [];
+    renderQueueTable();
+    fetchData();
+  } catch (err) {
+    console.error(err);
+    alert(`送出失敗：${err.message}`);
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerText = '🚀 盤點確定送出';
+  }
+}
+
+function toggleSelectAll(isChecked) {
+  const checkboxes = document.querySelectorAll('.history-checkbox');
+  checkboxes.forEach(cb => cb.checked = isChecked);
+  updateBatchDeleteButtonState();
+}
+
+function updateBatchDeleteButtonState() {
+  const checkedCbs = document.querySelectorAll('.history-checkbox:checked');
+  const batchBtn = document.getElementById('btn-batch-delete');
+  const selectAllCb = document.getElementById('select-all-checkbox');
+  const allCbs = document.querySelectorAll('.history-checkbox');
+
+  if (batchBtn) {
+    if (checkedCbs.length > 0) {
+      batchBtn.innerText = `🗑️ 批量刪除 (${checkedCbs.length})`;
+      batchBtn.classList.remove('hidden');
+    } else {
+      batchBtn.classList.add('hidden');
+    }
+  }
+
+  if (selectAllCb && allCbs.length > 0) {
+    selectAllCb.checked = (checkedCbs.length === allCbs.length);
+  }
+}
+
+async function deleteSelectedItems() {
+  const checkedCbs = document.querySelectorAll('.history-checkbox:checked');
+  const selectedIds = Array.from(checkedCbs).map(cb => cb.getAttribute('data-id'));
+
+  if (selectedIds.length === 0) return;
+  if (!confirm(`確定要一次刪除勾選的 ${selectedIds.length} 筆叫貨紀錄嗎？`)) return;
+
+  const batchBtn = document.getElementById('btn-batch-delete');
+  batchBtn.disabled = true;
+
+  try {
+    const { error } = await supabaseClient
+      .from('order_items')
+      .delete()
+      .in('order_item_id', selectedIds);
+
+    if (error) throw error;
+
+    alert(`🎉 已成功刪除 ${selectedIds.length} 筆紀錄！`);
+    const selectAllCb = document.getElementById('select-all-checkbox');
+    if (selectAllCb) selectAllCb.checked = false;
+    
+    fetchData();
+  } catch (err) {
+    alert(`刪除失敗：${err.message}`);
+  } finally {
+    batchBtn.disabled = false;
+  }
+}
+
+function renderTable() {
+  const tbody = document.getElementById('table-body');
+  const filterShift = document.getElementById('filter-shift').value;
+  const filterCat = document.getElementById('filter-cat').value;
+
+  tbody.innerHTML = '';
+
+  let filteredData = inventoryData;
+  if (filterCat) filteredData = filteredData.filter(d => d.categoryName === filterCat);
+  if (filterShift) filteredData = filteredData.filter(d => d.shift === filterShift);
+
+  if (!filteredData || filteredData.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-400">【${currentActiveStore}】查無符合條件的叫貨紀錄</td></tr>`;
+    updateBatchDeleteButtonState();
+    return;
+  }
+
+  filteredData.forEach(item => {
+    const shiftBadge = (item.shift === '打烊')
+      ? '<span class="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full text-xs font-bold border border-purple-300 ml-1.5">打烊</span>'
+      : '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-xs font-bold border border-amber-300 ml-1.5">下午</span>';
+
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-gray-50';
+    tr.innerHTML = `
+      <td class="p-3 text-center">
+        <input type="checkbox" class="history-checkbox w-4 h-4 text-indigo-600 rounded cursor-pointer" data-id="${item.id}" onchange="updateBatchDeleteButtonState()">
+      </td>
+      <td class="p-3 font-medium text-gray-800 whitespace-nowrap">${item.itemName}</td>
+      <td class="p-3 text-center font-bold text-blue-600 whitespace-nowrap">${item.quantity}</td>
+      <td class="p-3 text-center text-gray-600 text-xs font-semibold whitespace-nowrap">
+        ${item.orderDate} ${shiftBadge}
+      </td>
+      <td class="p-3 text-center whitespace-nowrap">
+        <button onclick="deleteItem('${item.id}')" class="bg-red-500 text-white px-2.5 py-1 rounded text-xs hover:bg-red-600 shadow-sm">刪除</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  updateBatchDeleteButtonState();
+}
+
+async function deleteItem(id) {
+  if (!confirm('確定要刪除這筆叫貨紀錄嗎？')) return;
+  try {
+    const { error } = await supabaseClient.from('order_items').delete().eq('order_item_id', id);
+    if (error) throw error;
+    fetchData();
+  } catch (err) {
+    alert(`刪除失敗：${err.message}`);
+  }
+}
+
+async function addOnlyCategory() {
+  const category = document.getElementById('new-single-cat').value.trim();
+  if (!category) return alert('請輸入分類名稱！');
+
+  function getPriority(catName) {
+    if (catName.includes('甜品') && catName.includes('冷藏')) return 1;
+    if (catName.includes('鯛魚燒')) return 2;
+    if (catName.includes('甜品') && catName.includes('乾貨')) return 3;
+    return 4;
+  }
+
+  try {
+    const { error } = await supabaseClient
+      .from('categories')
+      .insert({ category_name: category, priority: getPriority(category) });
+
+    if (error) throw error;
+
+    document.getElementById('new-single-cat').value = '';
+    await fetchCategories();
+    alert(`已成功建立分類：「${category}」！`);
+  } catch (err) {
+    alert(`新增失敗：${err.message}`);
+  }
+}
+
+async function addCatalogItem() {
+  const categoryName = document.getElementById('catalog-cat-select').value;
+  const itemName = document.getElementById('new-item-name').value.trim();
+  const scope = document.getElementById('item-store-scope').value;
+
+  if (!categoryName || !itemName) return alert('請選擇分類並輸入品項名稱！');
+
+  const categoryId = categoryMap[categoryName] || null;
+  const storeId = (scope === 'EXCLUSIVE') ? currentStoreId : null;
+
+  try {
+    const { error } = await supabaseClient
+      .from('items')
+      .insert({
+        item_name: itemName,
+        category_id: categoryId,
+        store_id: storeId
+      });
+
+    if (error) throw error;
+
+    document.getElementById('new-item-name').value = '';
+    await fetchCatalog();
+    alert(`已成功新增商品「${itemName}」！`);
+  } catch (err) {
+    alert(`新增失敗：${err.message}`);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  openStoreModal();
+});
+</script>
+</body>
+</html>
