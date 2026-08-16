@@ -3,11 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>門市叫貨總表 (多選門市過濾版)</title>
+  <title>門市叫貨出貨與訂單管理系統 (Supabase版)</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 引入 Supabase 官方 SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style id="dynamic-font-style">
     :root {
-      --custom-font-size: 12px;
+      --custom-font-size: 11.5px;
     }
   </style>
   <style>
@@ -35,6 +37,12 @@
       .no-print {
         display: none !important;
       }
+      #tab-monthly-content, #tab-manage-content {
+        display: none !important;
+      }
+      #tab-daily-content {
+        display: block !important;
+      }
       .print-area {
         width: 100% !important;
         max-width: none !important;
@@ -59,180 +67,470 @@
         padding-bottom: 2px !important;
         margin-bottom: 3px !important;
       }
+      .shortage-select {
+        display: none !important;
+      }
+      .print-shortage-label {
+        display: inline-block !important;
+        font-weight: bold;
+        font-size: 9px;
+      }
     }
 
-    /* 動態字級樣式 */
+    .print-shortage-label {
+      display: none;
+    }
+
     .dynamic-text-table th, 
     .dynamic-text-table td {
       font-size: var(--custom-font-size) !important;
-      padding: calc(var(--custom-font-size) * 0.12 + 1px) calc(var(--custom-font-size) * 0.15 + 1px) !important;
-      line-height: 1.1 !important;
+      padding: calc(var(--custom-font-size) * 0.1 + 1px) calc(var(--custom-font-size) * 0.12 + 1px) !important;
+      line-height: 1.15 !important;
     }
     
     .dynamic-store-title {
       font-size: calc(var(--custom-font-size) * 1.05) !important;
     }
 
-    /* 勾選完成後的劃記/反白效果 */
     .row-checked {
-      background-color: #e2e8f0 !important;
+      background-color: #f1f5f9 !important;
       color: #94a3b8 !important;
       text-decoration: line-through;
     }
     .row-checked td {
       color: #94a3b8 !important;
     }
+
+    .row-shortage {
+      background-color: #ffe4e6 !important;
+      border-left: 3px solid #e11d48 !important;
+    }
+    .row-shortage td {
+      color: #9f1239 !important;
+    }
   </style>
 </head>
-<body class="bg-slate-100 p-4 min-h-screen relative">
+<body class="bg-slate-100 p-3 md:p-4 min-h-screen relative text-slate-800">
 
-  <div class="max-w-[1400px] mx-auto space-y-3 print-area pb-12">
+  <div class="max-w-[1500px] mx-auto space-y-4 print-area pb-12">
     
-    <!-- 頂部標題區塊 -->
+    <!-- 頂部標題與分頁頁籤 (列印時隱藏) -->
     <div class="bg-slate-900 text-white p-4 rounded-2xl shadow-lg flex flex-wrap justify-between items-center gap-4 no-print">
       <div>
         <h1 class="text-xl font-bold flex items-center gap-2">
-          📊 門市叫貨總表 (多選門市點收版)
+          📦 門市叫貨出貨與訂單管理系統
         </h1>
-        <p class="text-xs text-slate-300 mt-1">支援勾選顯示指定門市，類別順序：冷藏 ➔ 鯛魚燒 ➔ 乾貨</p>
+        <p class="text-xs text-slate-300 mt-1">門市順序：萬丹 ➔ 潮州 ➔ 屏東 ➔ 仁愛 ➔ 木崎 ➔ 東港</p>
       </div>
-      <button onclick="window.print()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md">
-        🖨️ 列印 6 欄 A4 總表
-      </button>
+
+      <!-- 分頁切換鈕 -->
+      <div class="flex items-center gap-2 bg-slate-800 p-1.5 rounded-xl border border-slate-700">
+        <button id="btn-tab-daily" onclick="switchMainTab('daily')" class="px-3.5 py-2 text-xs font-bold rounded-lg bg-indigo-600 text-white transition shadow">
+          🚚 每日叫貨出貨總表
+        </button>
+        <button id="btn-tab-manage" onclick="switchMainTab('manage')" class="px-3.5 py-2 text-xs font-bold rounded-lg text-slate-300 hover:bg-slate-700 transition">
+          📝 每日訂單明細管理
+        </button>
+        <button id="btn-tab-monthly" onclick="switchMainTab('monthly')" class="px-3.5 py-2 text-xs font-bold rounded-lg text-slate-300 hover:bg-slate-700 transition">
+          📊 各門市月度實出統計
+        </button>
+      </div>
     </div>
 
-    <!-- 控制面板 -->
-    <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3 no-print">
+    <!-- ========================================== -->
+    <!-- 1. 每日叫貨出貨總表 (Daily Content) -->
+    <!-- ========================================== -->
+    <div id="tab-daily-content" class="space-y-3">
       
-      <!-- 門市勾選專區 (多選) -->
-      <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
-        <div class="flex flex-wrap justify-between items-center mb-2 gap-2">
-          <label class="text-xs font-bold text-slate-700 flex items-center gap-1">
-            🏪 勾選顯示門市（可多選）：
-          </label>
-          <div class="flex items-center gap-2">
-            <button onclick="selectAllStores(true)" class="text-[11px] bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-bold px-2 py-0.5 rounded transition">
-              全選
+      <!-- 每日控制面板 -->
+      <div class="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 space-y-3 no-print">
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 items-center">
+          
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">📅 選擇叫貨日期</label>
+            <input type="date" id="filter-date" onchange="fetchDailyData()" class="border p-2 rounded-lg w-full text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">⏰ 叫貨時段</label>
+            <select id="filter-shift" onchange="fetchDailyData()" class="border p-2 rounded-lg w-full text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
+              <option value="">全部時段 (下午 + 打烊)</option>
+              <option value="下午">☀️ 下午時段</option>
+              <option value="打烊">🌙 打烊時段</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">🏪 門市快速過濾</label>
+            <select id="filter-store" onchange="renderDailyData()" class="border p-2 rounded-lg w-full text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
+              <option value="">顯示全部 6 店</option>
+              <option value="萬丹店(W)">萬丹店(W)</option>
+              <option value="潮州店(C1)">潮州店(C1)</option>
+              <option value="屏東店(P1)">屏東店(P1)</option>
+              <option value="仁愛店(P2)">仁愛店(P2)</option>
+              <option value="木崎(C2)">木崎(C2)</option>
+              <option value="東港店(D)">東港店(D)</option>
+            </select>
+          </div>
+
+          <div class="bg-indigo-50/60 p-2 rounded-lg border border-indigo-100">
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-bold text-indigo-900">🔤 文字大小</label>
+              <span id="font-size-val" class="text-xs font-black text-indigo-600">11.5px</span>
+            </div>
+            <input type="range" id="font-size-range" min="8" max="24" value="11.5" step="0.5" oninput="adjustFontSize(this.value)" class="w-full accent-indigo-600 cursor-pointer">
+          </div>
+
+          <div class="flex items-end gap-2">
+            <button onclick="fetchDailyData()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold p-2 rounded-lg border transition text-xs flex justify-center items-center gap-1">
+              🔄 重新整理
             </button>
-            <button onclick="selectAllStores(false)" class="text-[11px] bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-2 py-0.5 rounded transition">
-              全不選
+            <button onclick="window.print()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold p-2 rounded-lg transition text-xs flex justify-center items-center gap-1 shadow">
+              🖨️ A4列印
             </button>
           </div>
-        </div>
-        
-        <!-- 門市勾選清單 -->
-        <div id="store-checkboxes" class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-bold text-slate-800">
-          <!-- 由 JS 動態生成勾選框 -->
+
         </div>
       </div>
 
-      <!-- 一般條件選單 -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 items-center">
-        
-        <!-- 1. 日期篩選 -->
+      <!-- 列印抬頭 -->
+      <div class="print-header flex justify-between items-end pb-1 border-b-2 border-slate-800">
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">📅 選擇日期</label>
-          <input type="date" id="filter-date" onchange="renderData()" class="border p-2 rounded-lg w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
+          <h2 class="text-base font-black text-slate-900">📊 各門市叫貨出貨核對總表 (6門市一頁式)</h2>
+          <p class="text-[10px] text-slate-500">列印時間：<span id="print-timestamp"></span></p>
         </div>
-
-        <!-- 2. 時段篩選 -->
-        <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">⏰ 叫貨時段</label>
-          <select id="filter-shift" onchange="renderData()" class="border p-2 rounded-lg w-full text-sm font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
-            <option value="">全部時段 (下午 + 打烊)</option>
-            <option value="下午">☀️ 下午時段</option>
-            <option value="打烊">🌙 打烊時段</option>
-          </select>
+        <div class="text-right text-[11px] text-slate-700">
+          <span><strong>查詢日期：</strong><span id="summary-date">-</span></span> │ 
+          <span><strong>時段條件：</strong><span id="summary-shift">全部時段</span></span>
         </div>
+      </div>
 
-        <!-- 3. 文字大小調整拉桿 -->
-        <div class="bg-indigo-50/60 p-2 rounded-lg border border-indigo-100">
-          <div class="flex justify-between items-center mb-1">
-            <label class="text-xs font-bold text-indigo-900">🔤 文字大小</label>
-            <span id="font-size-val" class="text-xs font-black text-indigo-600">12px</span>
+      <!-- 每日 6 門市卡片容器 -->
+      <div id="daily-data-container" class="print-grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+        <div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border">
+          資料載入中...
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 2. 每日訂單明細管理 (Manage Orders Content) -->
+    <!-- ========================================== -->
+    <div id="tab-manage-content" class="space-y-4 hidden no-print">
+      
+      <!-- 篩選與新增控制面板 -->
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap justify-between items-center gap-4">
+        <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">📅 叫貨日期</label>
+            <input type="date" id="manage-filter-date" onchange="fetchManageOrders()" class="border p-2 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
           </div>
-          <input type="range" id="font-size-range" min="8" max="30" value="12" step="0.5" oninput="adjustFontSize(this.value)" class="w-full accent-indigo-600 cursor-pointer">
+
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">🏪 門市篩選</label>
+            <select id="manage-filter-store" onchange="fetchManageOrders()" class="border p-2 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
+              <option value="">全部門市</option>
+              <option value="萬丹店(W)">萬丹店(W)</option>
+              <option value="潮州店(C1)">潮州店(C1)</option>
+              <option value="屏東店(P1)">屏東店(P1)</option>
+              <option value="仁愛店(P2)">仁愛店(P2)</option>
+              <option value="木崎(C2)">木崎(C2)</option>
+              <option value="東港店(D)">東港店(D)</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">⏰ 時段篩選</label>
+            <select id="manage-filter-shift" onchange="fetchManageOrders()" class="border p-2 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
+              <option value="">全部時段</option>
+              <option value="下午">下午</option>
+              <option value="打烊">打烊</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">🔍 搜尋品項</label>
+            <input type="text" id="manage-filter-keyword" oninput="renderManageTable()" placeholder="輸入品項名稱..." class="border p-2 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none w-44">
+          </div>
         </div>
 
-        <!-- 4. 強制同步數據 -->
-        <div class="flex items-end">
-          <button onclick="fetchCloudData(true)" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold p-2.5 rounded-lg border transition text-sm flex justify-center items-center gap-1">
-            🔄 強制更新數據
+        <!-- 批量操作與新增按鈕 -->
+        <div class="flex items-center gap-2">
+          <button id="btn-manage-batch-delete" onclick="deleteSelectedManageItems()" class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3.5 py-2.5 rounded-lg transition shadow hidden flex items-center gap-1">
+            🗑️ 批量刪除 (0)
+          </button>
+          <button onclick="openAddOrderModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition shadow flex items-center gap-1">
+            ➕ 手動新增叫貨明細
           </button>
         </div>
-
       </div>
+
+      <!-- 訂單明細管理表格 -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+          <h2 class="text-sm font-bold text-slate-800">📋 訂單叫貨明細清單</h2>
+          <span id="manage-record-count" class="text-xs font-bold text-indigo-600">共 0 筆明細</span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead class="bg-slate-100 border-b text-slate-600 font-bold">
+              <tr>
+                <th class="p-3 w-10 text-center">
+                  <input type="checkbox" id="manage-select-all" onchange="toggleManageSelectAll(this.checked)" class="w-4 h-4 text-indigo-600 rounded cursor-pointer align-middle">
+                </th>
+                <th class="p-3 w-12 text-center">#</th>
+                <th class="p-3 w-28 whitespace-nowrap">叫貨日期</th>
+                <th class="p-3 w-20 text-center whitespace-nowrap">時段</th>
+                <th class="p-3 w-32 whitespace-nowrap">門市名稱</th>
+                <th class="p-3 whitespace-nowrap">商品品項</th>
+                <th class="p-3 w-24 text-center whitespace-nowrap">叫貨數量</th>
+                <th class="p-3 w-24 text-center whitespace-nowrap">實出數量</th>
+                <th class="p-3 w-36 whitespace-nowrap">缺貨/出貨備註</th>
+                <th class="p-3 w-28 text-right pr-6 whitespace-nowrap">操作</th>
+              </tr>
+            </thead>
+            <tbody id="manage-tbody" class="divide-y divide-slate-100 text-slate-700">
+              <tr><td colspan="10" class="text-center py-10 text-slate-400">載入數據中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
 
-    <!-- 列印抬頭 -->
-    <div class="print-header flex justify-between items-end pb-1 border-b-2 border-slate-800">
-      <div>
-        <h2 class="text-base font-black text-slate-900">📊 各門市叫貨統計總表 (6門市一頁總表)</h2>
-        <p class="text-[10px] text-slate-500">列印時間：<span id="print-timestamp"></span></p>
-      </div>
-      <div class="text-right text-[11px] text-slate-700">
-        <span><strong>查詢日期：</strong><span id="summary-date">-</span></span> │ 
-        <span><strong>時段條件：</strong><span id="summary-shift">全部時段</span></span>
-      </div>
-    </div>
+    <!-- ========================================== -->
+    <!-- 3. 每月實出統計報表 (Monthly Content) -->
+    <!-- ========================================== -->
+    <div id="tab-monthly-content" class="space-y-4 hidden no-print">
+      
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap justify-between items-center gap-4">
+        <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">📅 選擇統計月份</label>
+            <input type="month" id="filter-month" onchange="loadMonthlyData()" class="border p-2 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
+          </div>
 
-    <!-- 數據容器 -->
-    <div id="data-container" class="print-grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-      <div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border">
-        資料載入中...
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">🏷️ 商品類別</label>
+            <select id="filter-monthly-category" onchange="renderMonthlyMatrixTable()" class="border p-2 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
+              <option value="">全部類別</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">🔍 搜尋品項</label>
+            <input type="text" id="filter-monthly-keyword" oninput="renderMonthlyMatrixTable()" placeholder="輸入品項關鍵字..." class="border p-2 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none w-48">
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="bg-indigo-50 border border-indigo-200 px-3.5 py-1.5 rounded-xl text-center">
+            <span class="text-[10px] font-bold text-indigo-700 block">總實際出貨量</span>
+            <span id="stat-total-actual" class="text-sm font-black text-indigo-900">0</span>
+          </div>
+          <div class="bg-slate-50 border border-slate-200 px-3.5 py-1.5 rounded-xl text-center">
+            <span class="text-[10px] font-bold text-slate-600 block">總原始叫貨量</span>
+            <span id="stat-total-ordered" class="text-sm font-black text-slate-800">0</span>
+          </div>
+          <div class="bg-rose-50 border border-rose-200 px-3.5 py-1.5 rounded-xl text-center">
+            <span class="text-[10px] font-bold text-rose-700 block">總缺貨數量</span>
+            <span id="stat-total-shortage" class="text-sm font-black text-rose-900">0</span>
+          </div>
+          <button onclick="exportToCSV()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition flex items-center gap-1 shadow">
+            📥 匯出 CSV
+          </button>
+        </div>
       </div>
+
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+          <h2 class="text-sm font-bold text-slate-800">📦 各門市商品【實際出貨量】矩陣統計表</h2>
+          <span class="text-[11px] text-slate-400">※ 數值已自動扣除缺貨數量</span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead class="bg-slate-100 border-b text-slate-600 font-bold">
+              <tr>
+                <th class="p-3 w-12 text-center border-r">#</th>
+                <th class="p-3 w-48 border-r whitespace-nowrap">商品名稱</th>
+                <th class="p-3 w-28 border-r whitespace-nowrap">商品分類</th>
+                <th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">萬丹店(W)</th>
+                <th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">潮州店(C1)</th>
+                <th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">屏東店(P1)</th>
+                <th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">仁愛店(P2)</th>
+                <th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">木崎(C2)</th>
+                <th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">東港店(D)</th>
+                <th class="p-3 text-center bg-amber-50 text-amber-900 font-black whitespace-nowrap">合計實出</th>
+              </tr>
+            </thead>
+            <tbody id="matrix-tbody" class="divide-y divide-slate-100 text-slate-700">
+              <tr><td colspan="10" class="text-center py-10 text-slate-400">載入數據中...</td></tr>
+            </tbody>
+            <tfoot id="matrix-tfoot" class="bg-slate-50 font-black border-t-2 border-slate-300">
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
     </div>
 
   </div>
 
+  <!-- 模態框：手動新增/編輯訂單明細 -->
+  <div id="order-edit-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex justify-center items-center hidden p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <h3 id="order-modal-title" class="text-base font-bold text-slate-900">手動新增叫貨明細</h3>
+      <input type="hidden" id="modal-order-item-id">
+
+      <div class="space-y-3">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">叫貨日期 *</label>
+            <input type="date" id="modal-order-date" class="w-full border p-2 rounded-lg text-xs font-bold text-slate-800 focus:outline-indigo-500">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">叫貨時段 *</label>
+            <select id="modal-order-shift" class="w-full border p-2 rounded-lg text-xs font-bold text-slate-800 focus:outline-indigo-500">
+              <option value="下午">下午</option>
+              <option value="打烊">打烊</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">叫貨門市 *</label>
+          <select id="modal-order-store" onchange="loadStoreItemsForModal()" class="w-full border p-2 rounded-lg text-xs font-bold text-slate-800 focus:outline-indigo-500">
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">商品品項 *</label>
+          <select id="modal-order-item" class="w-full border p-2 rounded-lg text-xs font-bold text-slate-800 focus:outline-indigo-500">
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">叫貨數量 *</label>
+            <input type="number" id="modal-order-qty" min="1" value="1" class="w-full border p-2 rounded-lg text-xs font-bold text-slate-800 focus:outline-indigo-500">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">實出數量 (留空為全出)</label>
+            <input type="number" id="modal-order-actual-qty" min="0" placeholder="同叫貨量" class="w-full border p-2 rounded-lg text-xs font-bold text-slate-800 focus:outline-indigo-500">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">缺貨/出貨備註</label>
+          <input type="text" id="modal-order-note" placeholder="例如：缺1(實出1) 或 正常出貨" class="w-full border p-2 rounded-lg text-xs text-slate-800 focus:outline-indigo-500">
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button onclick="closeOrderModal()" class="px-4 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg">取消</button>
+        <button onclick="saveOrderRecord()" class="px-4 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">儲存紀錄</button>
+      </div>
+    </div>
+  </div>
+
   <script>
-    const API_URL = 'https://script.google.com/macros/s/AKfycbxiblsuljzndWVVMCbHOMekJqIKlshKcprpO6SS7i8PMTHnLojT1B4LXjutB_IEb3dVoQ/exec';
-    
-    // 門市預設順序：潮州店 ➔ 木崎 ➔ 東港 ➔ 萬丹 ➔ 仁愛 ➔ 屏東
+    const SUPABASE_URL = 'https://rjetwgrelmvciatouwiw.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_Zvf4B53wK4tXQAIWOGiaYQ_KSxVO5MZ';
+
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
     const TARGET_STORES = [
+      '萬丹店(W)',
       '潮州店(C1)', 
-      '木崎(C2)', 
-      '東港店(D)', 
-      '萬丹店(W)', 
+      '屏東店(P1)', 
       '仁愛店(P2)', 
-      '屏東店(P1)'
+      '木崎(C2)', 
+      '東港店(D)'
     ];
 
-    let rawDataCache = null;
+    let currentDailyData = [];
+    let currentMonthlyRawData = [];
+    let currentManageData = [];
+    let categoriesList = [];
+    let allItemsList = [];
+    let allStoresList = [];
 
-    document.addEventListener('DOMContentLoaded', () => {
-      const today = new Date().toISOString().split('T')[0];
+    document.addEventListener('DOMContentLoaded', async () => {
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
+      const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      
       document.getElementById('filter-date').value = today;
-      
-      initStoreCheckboxes(); // 初始化門市多選框
+      document.getElementById('manage-filter-date').value = today;
+      document.getElementById('filter-month').value = currentMonth;
 
-      const localSaved = localStorage.getItem('order_data_cache');
-      if (localSaved) {
-        try {
-          rawDataCache = JSON.parse(localSaved);
-          renderData();
-        } catch (e) {}
-      }
-      
-      fetchCloudData();
+      await loadBaseDropdowns();
+      await fetchDailyData();
     });
 
-    // 初始化門市多選按鈕
-    function initStoreCheckboxes() {
-      const container = document.getElementById('store-checkboxes');
-      container.innerHTML = TARGET_STORES.map((store, idx) => `
-        <label class="flex items-center gap-1.5 cursor-pointer hover:text-indigo-600 transition bg-white px-2 py-1 rounded border border-slate-200">
-          <input type="checkbox" value="${store}" checked onchange="renderData()" class="store-chk w-4 h-4 accent-indigo-600 cursor-pointer">
-          <span>${store}</span>
-        </label>
-      `).join('');
+    function switchMainTab(tab) {
+      const btnDaily = document.getElementById('btn-tab-daily');
+      const btnManage = document.getElementById('btn-tab-manage');
+      const btnMonthly = document.getElementById('btn-tab-monthly');
+      
+      const secDaily = document.getElementById('tab-daily-content');
+      const secManage = document.getElementById('tab-manage-content');
+      const secMonthly = document.getElementById('tab-monthly-content');
+
+      const normalClass = 'px-3.5 py-2 text-xs font-bold rounded-lg text-slate-300 hover:bg-slate-700 transition';
+      const activeClass = 'px-3.5 py-2 text-xs font-bold rounded-lg bg-indigo-600 text-white transition shadow';
+
+      btnDaily.className = normalClass;
+      btnManage.className = normalClass;
+      btnMonthly.className = normalClass;
+
+      secDaily.classList.add('hidden');
+      secManage.classList.add('hidden');
+      secMonthly.classList.add('hidden');
+
+      if (tab === 'daily') {
+        btnDaily.className = activeClass;
+        secDaily.classList.remove('hidden');
+      } else if (tab === 'manage') {
+        btnManage.className = activeClass;
+        secManage.classList.remove('hidden');
+        fetchManageOrders();
+      } else if (tab === 'monthly') {
+        btnMonthly.className = activeClass;
+        secMonthly.classList.remove('hidden');
+        loadMonthlyData();
+      }
     }
 
-    // 全選 / 全不選門市
-    function selectAllStores(select) {
-      const checkboxes = document.querySelectorAll('.store-chk');
-      checkboxes.forEach(chk => chk.checked = select);
-      renderData();
+    async function loadBaseDropdowns() {
+      const [catRes, storeRes, itemRes] = await Promise.all([
+        supabaseClient.from('categories').select('*').order('priority', { ascending: true }),
+        supabaseClient.from('stores').select('*').order('sort_order', { ascending: true }),
+        supabaseClient.from('items').select('item_id, item_name, store_id')
+      ]);
+
+      categoriesList = catRes.data || [];
+      allStoresList = storeRes.data || [];
+      allItemsList = itemRes.data || [];
+
+      const selectMonthlyCat = document.getElementById('filter-monthly-category');
+      if (selectMonthlyCat) {
+        selectMonthlyCat.innerHTML = '<option value="">全部類別</option>';
+        categoriesList.forEach(c => {
+          selectMonthlyCat.innerHTML += `<option value="${c.category_name}">${c.category_name}</option>`;
+        });
+      }
+
+      const modalStore = document.getElementById('modal-order-store');
+      if (modalStore) {
+        modalStore.innerHTML = '';
+        allStoresList.forEach(s => {
+          modalStore.innerHTML += `<option value="${s.store_id}">${s.store_name}</option>`;
+        });
+      }
     }
 
     function adjustFontSize(val) {
@@ -245,188 +543,207 @@
       document.getElementById('print-timestamp').innerText = now.toLocaleString('zh-TW', { hour12: false });
     }
 
-    function toggleRowCheck(checkbox) {
+    // ==========================================
+    // 1. 每日出貨總表邏輯
+    // ==========================================
+    async function toggleRowCheck(checkbox, orderItemId) {
       const row = checkbox.closest('tr');
-      if (checkbox.checked) {
+      const isChecked = checkbox.checked;
+
+      if (isChecked) {
         row.classList.add('row-checked');
       } else {
         row.classList.remove('row-checked');
       }
+
+      if (orderItemId) {
+        await supabaseClient
+          .from('order_items')
+          .update({ is_checked: isChecked })
+          .eq('order_item_id', orderItemId);
+      }
     }
 
-    async function fetchCloudData(forceRefresh = false) {
-      const container = document.getElementById('data-container');
+    async function handleShortageQtyChange(selectEl, orderItemId, orderedQty) {
+      const row = selectEl.closest('tr');
+      const printLabel = row.querySelector('.print-shortage-label');
+      const shortQty = parseInt(selectEl.value, 10) || 0;
 
-      if (!forceRefresh && rawDataCache !== null) {
-        renderData();
+      let actualQty = Math.max(0, orderedQty - shortQty);
+      let note = '';
+
+      if (shortQty === 0) {
+        actualQty = orderedQty;
+        note = '正常出貨';
+        selectEl.className = 'shortage-select bg-white border border-emerald-300 rounded text-[10px] p-0.5 font-bold text-emerald-600 focus:outline-none cursor-pointer';
+        row.classList.remove('row-shortage');
+        if (printLabel) printLabel.innerText = '';
       } else {
-        container.innerHTML = '<div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border">正在連線雲端資料庫...</div>';
+        note = `缺${shortQty}(實出${actualQty})`;
+        selectEl.className = 'shortage-select bg-rose-50 border border-rose-400 rounded text-[10px] p-0.5 font-black text-rose-600 focus:outline-none cursor-pointer';
+        row.classList.add('row-shortage');
+        if (printLabel) printLabel.innerText = `[缺${shortQty}]`;
       }
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-      try {
-        const res = await fetch(`${API_URL}?t=${Date.now()}`, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        const result = await res.json();
-        
-        const list = result.data || [];
-        rawDataCache = list.map(item => {
-          const parsed = parseShiftInfo(item.updatedAt, item.store);
-          
-          let rawStore = item.store || '';
-          let cleanRawStore = rawStore.replace(/\(下午\)|\(打烊\)/g, '').trim();
-          let matchedStore = TARGET_STORES.find(target => {
-            let cleanTarget = target.split('(')[0].trim();
-            return cleanRawStore.includes(cleanTarget) || cleanTarget.includes(cleanRawStore);
-          });
-
-          return { ...item, parsed, matchedStore };
-        });
-
-        try {
-          localStorage.setItem('order_data_cache', JSON.stringify(rawDataCache));
-        } catch (e) {}
-
-        renderData();
-      } catch (err) {
-        if (rawDataCache === null) {
-          container.innerHTML = '<div class="col-span-full bg-white p-8 rounded-xl text-center text-red-500 border">雲端連線較慢或失敗，請點擊「強制更新數據」重試。</div>';
-        }
+      if (orderItemId) {
+        await supabaseClient
+          .from('order_items')
+          .update({
+            actual_quantity: actualQty,
+            note: note
+          })
+          .eq('order_item_id', orderItemId);
       }
     }
 
-    function parseShiftInfo(dateStr, storeStr) {
-      if (!dateStr) return { shiftName: '下午' };
-      const parts = dateStr.split(' ');
-      const timePart = parts[1] || '';
-
-      let shiftName = '下午';
-      if ((storeStr && storeStr.includes('打烊')) || (dateStr && dateStr.includes('打烊'))) {
-        shiftName = '打烊';
-      } else if ((storeStr && storeStr.includes('下午')) || (dateStr && dateStr.includes('下午'))) {
-        shiftName = '下午';
-      } else if (timePart && timePart.includes(':')) {
-        const hour = parseInt(timePart.split(':')[0], 10);
-        if (!isNaN(hour)) {
-          shiftName = (hour >= 18) ? '打烊' : '下午';
-        }
-      }
-      return { shiftName };
-    }
-
-    // 類別優先權判斷
-    function getCategoryPriority(categoryStr) {
-      if (!categoryStr) return 4;
-      const cleanCat = String(categoryStr).trim();
-      
-      if (cleanCat.includes('甜品') && cleanCat.includes('冷藏')) {
-        return 1;
-      } else if (cleanCat.includes('鯛魚燒')) {
-        return 2;
-      } else if (cleanCat.includes('甜品') && cleanCat.includes('乾貨')) {
-        return 3;
-      } else if (cleanCat.includes('冷藏')) {
-        return 1;
-      } else if (cleanCat.includes('乾貨')) {
-        return 3;
-      }
-      return 4;
-    }
-
-    function renderData() {
-      updateTimestamp();
-      if (!rawDataCache) return;
-
+    async function fetchDailyData() {
+      const container = document.getElementById('daily-data-container');
       const selectedDate = document.getElementById('filter-date').value;
       const selectedShift = document.getElementById('filter-shift').value;
-      const container = document.getElementById('data-container');
 
-      // 取得當前有被勾選的門市清單 (多選)
-      const selectedStores = Array.from(document.querySelectorAll('.store-chk:checked')).map(cb => cb.value);
+      container.innerHTML = '<div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border">正在透過 Supabase 加載數據...</div>';
+
+      try {
+        let query = supabaseClient
+          .from('order_items')
+          .select(`
+            order_item_id,
+            quantity,
+            actual_quantity,
+            note,
+            is_checked,
+            orders!inner (
+              order_date,
+              shift,
+              stores!inner ( store_name, sort_order )
+            ),
+            items!inner (
+              item_name,
+              categories!inner ( category_name, priority )
+            )
+          `)
+          .eq('orders.order_date', selectedDate);
+
+        if (selectedShift) {
+          query = query.eq('orders.shift', selectedShift);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        currentDailyData = data || [];
+        renderDailyData();
+      } catch (err) {
+        console.error(err);
+        container.innerHTML = `<div class="col-span-full bg-white p-8 rounded-xl text-center text-red-500 border">Supabase 讀取失敗: ${err.message}</div>`;
+      }
+    }
+
+    function buildShortageQtySelectHTML(orderItemId, orderedQty, actualQty, note) {
+      let currentShortage = 0;
+      if (actualQty !== null && actualQty !== undefined && actualQty < orderedQty) {
+        currentShortage = Math.max(0, orderedQty - actualQty);
+      } else if (note && note.includes('缺')) {
+        const match = note.match(/缺(\d+)/);
+        if (match) currentShortage = parseInt(match[1], 10);
+      }
+
+      const isShort = currentShortage > 0;
+      const selectClass = isShort
+        ? 'shortage-select bg-rose-50 border border-rose-400 rounded text-[10px] p-0.5 font-black text-rose-600 focus:outline-none cursor-pointer'
+        : 'shortage-select bg-white border border-emerald-300 rounded text-[10px] p-0.5 font-bold text-emerald-600 focus:outline-none cursor-pointer';
+
+      let optionsHTML = '';
+      optionsHTML += `<option value="0" class="text-emerald-600 font-bold" ${currentShortage === 0 ? 'selected' : ''}>正常出貨</option>`;
+
+      const maxShortOption = Math.max(10, orderedQty);
+      for (let s = 1; s <= maxShortOption; s++) {
+        const isSelected = (s === currentShortage);
+        optionsHTML += `<option value="${s}" class="text-rose-600 font-bold" ${isSelected ? 'selected' : ''}>缺 ${s}</option>`;
+      }
+
+      const printText = isShort ? `[缺${currentShortage}]` : '';
+
+      return `
+        <select onchange="handleShortageQtyChange(this, ${orderItemId}, ${orderedQty})" class="${selectClass}">
+          ${optionsHTML}
+        </select>
+        <span class="print-shortage-label text-rose-700 font-bold">${printText}</span>
+      `;
+    }
+
+    function renderDailyData() {
+      updateTimestamp();
+      const selectedDate = document.getElementById('filter-date').value;
+      const selectedShift = document.getElementById('filter-shift').value;
+      const selectedStore = document.getElementById('filter-store').value;
+      const container = document.getElementById('daily-data-container');
 
       document.getElementById('summary-date').innerText = selectedDate || '全部日期';
       document.getElementById('summary-shift').innerText = selectedShift ? `${selectedShift}時段` : '全部時段';
 
       const storeDataMap = {};
-      TARGET_STORES.forEach(store => storeDataMap[store] = {});
+      TARGET_STORES.forEach(store => storeDataMap[store] = []);
 
-      for (let i = 0; i < rawDataCache.length; i++) {
-        const item = rawDataCache[i];
-        
-        if (selectedDate && (!item.updatedAt || !item.updatedAt.startsWith(selectedDate))) {
-          continue;
+      currentDailyData.forEach(row => {
+        const storeName = row.orders.stores.store_name;
+        const matchedStore = TARGET_STORES.find(s => s.includes(storeName) || storeName.includes(s));
+
+        if (matchedStore) {
+          storeDataMap[matchedStore].push({
+            orderItemId: row.order_item_id,
+            itemName: row.items.item_name,
+            categoryName: row.items.categories.category_name,
+            priority: row.items.categories.priority,
+            quantity: row.quantity,
+            actualQuantity: row.actual_quantity,
+            note: row.note,
+            isChecked: row.is_checked
+          });
         }
-
-        if (selectedShift && item.parsed.shiftName !== selectedShift) {
-          continue;
-        }
-
-        if (item.matchedStore) {
-          const itemName = item.itemName || '未知名稱';
-          const qty = parseInt(item.quantity, 10) || 0;
-          const category = item.category || '';
-
-          if (!storeDataMap[item.matchedStore][itemName]) {
-            storeDataMap[item.matchedStore][itemName] = { qty, category };
-          } else {
-            storeDataMap[item.matchedStore][itemName].qty += qty;
-            if (!storeDataMap[item.matchedStore][itemName].category && category) {
-              storeDataMap[item.matchedStore][itemName].category = category;
-            }
-          }
-        }
-      }
+      });
 
       container.innerHTML = '';
 
-      // 只渲染有被勾選的門市卡片
-      const displayStores = TARGET_STORES.filter(s => selectedStores.includes(s));
-
-      if (displayStores.length === 0) {
-        container.innerHTML = '<div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border font-bold">請至少勾選一家門市進行顯示</div>';
-        return;
+      let displayStores = TARGET_STORES;
+      if (selectedStore) {
+        displayStores = TARGET_STORES.filter(s => s === selectedStore);
       }
 
       displayStores.forEach(storeName => {
-        const itemsObj = storeDataMap[storeName] || {};
-        let itemNames = Object.keys(itemsObj);
-
-        itemNames.sort((a, b) => {
-          const pA = getCategoryPriority(itemsObj[a].category);
-          const pB = getCategoryPriority(itemsObj[b].category);
-
-          return pA - pB;
-        });
+        let itemsList = storeDataMap[storeName] || [];
+        itemsList.sort((a, b) => a.priority - b.priority);
 
         const storeCard = document.createElement('div');
         storeCard.className = 'print-card bg-white rounded border border-slate-300 overflow-hidden shadow-sm flex flex-col justify-between';
 
         let rowsHtml = '';
-        if (itemNames.length === 0) {
-          rowsHtml = `<tr><td colspan="4" class="text-center text-slate-400 py-2">無叫貨紀錄</td></tr>`;
+        if (itemsList.length === 0) {
+          rowsHtml = `<tr><td colspan="5" class="text-center text-slate-400 py-3">無叫貨紀錄</td></tr>`;
         } else {
-          rowsHtml = itemNames.map((itemName, idx) => {
-            const itemData = itemsObj[itemName];
-            const pLevel = getCategoryPriority(itemData.category);
-
+          rowsHtml = itemsList.map((item, idx) => {
+            const pLevel = item.priority;
             let rowClass = '';
-            if (pLevel === 1) {
-              rowClass = 'bg-amber-100/70 print:bg-transparent font-black text-amber-950';
-            } else if (pLevel === 2) {
-              rowClass = 'bg-orange-100/70 print:bg-transparent font-bold text-orange-950';
-            } else if (pLevel === 3) {
-              rowClass = 'bg-sky-100/60 print:bg-transparent font-bold text-sky-950';
-            }
+            if (pLevel === 1) rowClass = 'bg-amber-100/70 font-black text-amber-950';
+            else if (pLevel === 2) rowClass = 'bg-orange-100/70 font-bold text-orange-950';
+            else if (pLevel === 3) rowClass = 'bg-sky-100/60 font-bold text-sky-950';
+
+            const isShortage = (item.actualQuantity !== null && item.actualQuantity < item.quantity) || (item.note && item.note.includes('缺'));
+            if (isShortage) rowClass += ' row-shortage';
+
+            const checkedClass = item.isChecked ? 'row-checked' : '';
+            const shortageSelectHtml = buildShortageQtySelectHTML(item.orderItemId, item.quantity, item.actualQuantity, item.note);
 
             return `
-              <tr class="border-b last:border-0 border-slate-200 transition-colors ${rowClass}">
-                <td class="text-center text-slate-400 w-4">${idx + 1}</td>
-                <td class="font-bold text-slate-800 break-all">${itemName}</td>
-                <td class="text-right font-black text-indigo-700 pr-1 w-8">${itemData.qty}</td>
-                <td class="text-center w-5">
-                  <input type="checkbox" onchange="toggleRowCheck(this)" class="w-3.5 h-3.5 accent-indigo-600 rounded cursor-pointer align-middle">
+              <tr class="border-b last:border-0 border-slate-200 transition-colors ${rowClass} ${checkedClass}">
+                <td class="text-center text-slate-400 w-3.5">${idx + 1}</td>
+                <td class="font-bold text-slate-800 whitespace-nowrap leading-tight">${item.itemName}</td>
+                <td class="text-center font-black text-indigo-700 w-6">${item.quantity}</td>
+                <td class="text-center w-24">
+                  ${shortageSelectHtml}
+                </td>
+                <td class="text-center w-4 no-print">
+                  <input type="checkbox" ${item.isChecked ? 'checked' : ''} onchange="toggleRowCheck(this, ${item.orderItemId})" class="w-3.5 h-3.5 accent-indigo-600 rounded cursor-pointer align-middle">
                 </td>
               </tr>
             `;
@@ -437,15 +754,16 @@
           <div>
             <div class="bg-slate-800 text-white px-1.5 py-0.5 flex justify-between items-center print:bg-slate-900">
               <span class="font-bold dynamic-store-title truncate">🏪 ${storeName}</span>
-              <span class="text-[9px] bg-slate-700 px-1 rounded text-slate-200">${itemNames.length}項</span>
+              <span class="text-[9px] bg-slate-700 px-1 rounded text-slate-200">${itemsList.length}項</span>
             </div>
             <table class="dynamic-text-table w-full text-left">
               <thead>
-                <tr class="bg-slate-100 text-slate-600 border-b border-slate-300 font-bold">
-                  <th class="text-center w-4">#</th>
-                  <th>品項名稱</th>
-                  <th class="text-right pr-1 w-8">數量</th>
-                  <th class="text-center w-5">確認</th>
+                <tr class="bg-slate-100 text-slate-600 border-b border-slate-300 font-bold text-[10px]">
+                  <th class="text-center w-3.5">#</th>
+                  <th class="whitespace-nowrap">品項</th>
+                  <th class="text-center w-6">叫</th>
+                  <th class="text-center w-24 whitespace-nowrap">出貨/缺貨</th>
+                  <th class="text-center w-4 no-print">核</th>
                 </tr>
               </thead>
               <tbody>
@@ -457,6 +775,487 @@
 
         container.appendChild(storeCard);
       });
+    }
+
+    // ==========================================
+    // 2. 每日訂單明細管理邏輯 (CRUD)
+    // ==========================================
+    async function fetchManageOrders() {
+      const tbody = document.getElementById('manage-tbody');
+      const targetDate = document.getElementById('manage-filter-date').value;
+      const targetStore = document.getElementById('manage-filter-store').value;
+      const targetShift = document.getElementById('manage-filter-shift').value;
+
+      tbody.innerHTML = '<tr><td colspan="10" class="text-center py-10 text-slate-400">正在加載訂單明細...</td></tr>';
+
+      try {
+        let query = supabaseClient
+          .from('order_items')
+          .select(`
+            order_item_id,
+            order_id,
+            item_id,
+            quantity,
+            actual_quantity,
+            note,
+            orders!inner (
+              order_id,
+              order_date,
+              shift,
+              store_id,
+              stores!inner ( store_name, sort_order )
+            ),
+            items!inner (
+              item_id,
+              item_name
+            )
+          `)
+          .order('order_item_id', { ascending: false });
+
+        if (targetDate) query = query.eq('orders.order_date', targetDate);
+        if (targetShift) query = query.eq('orders.shift', targetShift);
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        currentManageData = data || [];
+        renderManageTable();
+      } catch (err) {
+        console.error(err);
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center py-10 text-red-500">讀取失敗: ${err.message}</td></tr>`;
+      }
+    }
+
+    function renderManageTable() {
+      const tbody = document.getElementById('manage-tbody');
+      const targetStore = document.getElementById('manage-filter-store').value;
+      const keyword = document.getElementById('manage-filter-keyword').value.trim().toLowerCase();
+
+      const selectAll = document.getElementById('manage-select-all');
+      if (selectAll) selectAll.checked = false;
+
+      let filtered = currentManageData.filter(row => {
+        const sName = row.orders.stores.store_name;
+        const iName = row.items.item_name.toLowerCase();
+
+        if (targetStore && !sName.includes(targetStore) && !targetStore.includes(sName)) return false;
+        if (keyword && !iName.includes(keyword)) return false;
+        return true;
+      });
+
+      document.getElementById('manage-record-count').innerText = `共 ${filtered.length} 筆明細`;
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center py-10 text-slate-400">查無符合條件之訂單紀錄</td></tr>';
+        updateManageBatchDeleteBtn();
+        return;
+      }
+
+      tbody.innerHTML = filtered.map((row, idx) => {
+        const actualDisplay = row.actual_quantity !== null ? `<span class="font-bold text-slate-800">${row.actual_quantity}</span>` : `<span class="text-slate-400">(同叫貨)</span>`;
+        const noteDisplay = row.note ? `<span class="text-rose-600 font-bold">${row.note}</span>` : `<span class="text-slate-300">-</span>`;
+
+        return `
+          <tr class="hover:bg-slate-50 transition">
+            <td class="p-3 text-center">
+              <input type="checkbox" class="manage-checkbox w-4 h-4 text-indigo-600 rounded cursor-pointer align-middle" data-id="${row.order_item_id}" onchange="updateManageBatchDeleteBtn()">
+            </td>
+            <td class="p-3 text-center text-slate-400">${idx + 1}</td>
+            <td class="p-3 font-semibold text-slate-700 whitespace-nowrap">${row.orders.order_date}</td>
+            <td class="p-3 text-center font-bold text-indigo-600 whitespace-nowrap">${row.orders.shift}</td>
+            <td class="p-3 font-bold text-slate-900 whitespace-nowrap">🏪 ${row.orders.stores.store_name}</td>
+            <td class="p-3 font-bold text-slate-800 whitespace-nowrap">${row.items.item_name}</td>
+            <td class="p-3 text-center font-black text-indigo-600 whitespace-nowrap">${row.quantity}</td>
+            <td class="p-3 text-center whitespace-nowrap">${actualDisplay}</td>
+            <td class="p-3 text-xs whitespace-nowrap">${noteDisplay}</td>
+            <td class="p-3 text-right pr-6 space-x-1 whitespace-nowrap">
+              <button onclick="editOrderRecord(${row.order_item_id})" class="px-2 py-1 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded font-bold transition">✏️ 編輯</button>
+              <button onclick="deleteSingleOrderItem(${row.order_item_id}, '${row.items.item_name}')" class="px-2 py-1 text-rose-500 hover:bg-rose-50 rounded font-bold transition">🗑️ 刪除</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      updateManageBatchDeleteBtn();
+    }
+
+    function toggleManageSelectAll(isChecked) {
+      const checkboxes = document.querySelectorAll('.manage-checkbox');
+      checkboxes.forEach(cb => cb.checked = isChecked);
+      updateManageBatchDeleteBtn();
+    }
+
+    function updateManageBatchDeleteBtn() {
+      const checkedBoxes = document.querySelectorAll('.manage-checkbox:checked');
+      const allBoxes = document.querySelectorAll('.manage-checkbox');
+      const batchBtn = document.getElementById('btn-manage-batch-delete');
+      const selectAll = document.getElementById('manage-select-all');
+
+      if (batchBtn) {
+        if (checkedBoxes.length > 0) {
+          batchBtn.innerText = `🗑️ 批量刪除 (${checkedBoxes.length})`;
+          batchBtn.classList.remove('hidden');
+        } else {
+          batchBtn.classList.add('hidden');
+        }
+      }
+
+      if (selectAll && allBoxes.length > 0) {
+        selectAll.checked = (checkedBoxes.length === allBoxes.length);
+      }
+    }
+
+    async function deleteSelectedManageItems() {
+      const checkedBoxes = document.querySelectorAll('.manage-checkbox:checked');
+      const selectedIds = Array.from(checkedBoxes).map(cb => parseInt(cb.getAttribute('data-id'), 10));
+
+      if (selectedIds.length === 0) return;
+      if (!confirm(`⚠️ 確定要一次刪除勾選的 ${selectedIds.length} 筆訂單明細嗎？`)) return;
+
+      const batchBtn = document.getElementById('btn-manage-batch-delete');
+      batchBtn.disabled = true;
+
+      try {
+        const { error } = await supabaseClient.from('order_items').delete().in('order_item_id', selectedIds);
+        if (error) throw error;
+        alert(`🎉 已成功刪除 ${selectedIds.length} 筆明細！`);
+        await fetchManageOrders();
+      } catch (err) {
+        alert(`刪除失敗: ${err.message}`);
+      } finally {
+        batchBtn.disabled = false;
+      }
+    }
+
+    async function deleteSingleOrderItem(orderItemId, itemName) {
+      if (!confirm(`確定要刪除品項【${itemName}】這筆叫貨紀錄嗎？`)) return;
+      try {
+        const { error } = await supabaseClient.from('order_items').delete().eq('order_item_id', orderItemId);
+        if (error) throw error;
+        await fetchManageOrders();
+      } catch (err) {
+        alert(`刪除失敗: ${err.message}`);
+      }
+    }
+
+    function loadStoreItemsForModal() {
+      const storeId = document.getElementById('modal-order-store').value;
+      const itemSelect = document.getElementById('modal-order-item');
+      itemSelect.innerHTML = '';
+
+      const availableItems = allItemsList.filter(i => i.store_id === null || String(i.store_id) === String(storeId));
+      availableItems.sort((a, b) => a.item_name.localeCompare(b.item_name, 'zh-Hant'));
+
+      availableItems.forEach(i => {
+        itemSelect.innerHTML += `<option value="${i.item_id}">${i.item_name}${i.store_id === null ? ' (共通)' : ''}</option>`;
+      });
+    }
+
+    function openAddOrderModal() {
+      document.getElementById('modal-order-item-id').value = '';
+      document.getElementById('order-modal-title').innerText = '手動新增叫貨明細';
+      document.getElementById('modal-order-date').value = document.getElementById('manage-filter-date').value || new Date().toISOString().split('T')[0];
+      document.getElementById('modal-order-shift').value = '下午';
+      document.getElementById('modal-order-qty').value = '1';
+      document.getElementById('modal-order-actual-qty').value = '';
+      document.getElementById('modal-order-note').value = '';
+
+      loadStoreItemsForModal();
+      document.getElementById('order-edit-modal').classList.remove('hidden');
+    }
+
+    function closeOrderModal() {
+      document.getElementById('order-edit-modal').classList.add('hidden');
+    }
+
+    function editOrderRecord(orderItemId) {
+      const row = currentManageData.find(r => r.order_item_id === orderItemId);
+      if (!row) return;
+
+      document.getElementById('modal-order-item-id').value = row.order_item_id;
+      document.getElementById('order-modal-title').innerText = '編輯叫貨明細';
+      document.getElementById('modal-order-date').value = row.orders.order_date;
+      document.getElementById('modal-order-shift').value = row.orders.shift;
+      document.getElementById('modal-order-store').value = row.orders.store_id;
+
+      loadStoreItemsForModal();
+      document.getElementById('modal-order-item').value = row.item_id;
+      document.getElementById('modal-order-qty').value = row.quantity;
+      document.getElementById('modal-order-actual-qty').value = row.actual_quantity !== null ? row.actual_quantity : '';
+      document.getElementById('modal-order-note').value = row.note || '';
+
+      document.getElementById('order-edit-modal').classList.remove('hidden');
+    }
+
+    async function saveOrderRecord() {
+      const orderItemId = document.getElementById('modal-order-item-id').value;
+      const orderDate = document.getElementById('modal-order-date').value;
+      const shift = document.getElementById('modal-order-shift').value;
+      const storeId = parseInt(document.getElementById('modal-order-store').value, 10);
+      const itemId = parseInt(document.getElementById('modal-order-item').value, 10);
+      const qty = parseInt(document.getElementById('modal-order-qty').value, 10) || 1;
+      const actualQtyVal = document.getElementById('modal-order-actual-qty').value.trim();
+      const actualQty = actualQtyVal !== '' ? parseInt(actualQtyVal, 10) : null;
+      const note = document.getElementById('modal-order-note').value.trim();
+
+      if (!orderDate || !storeId || !itemId) return alert('請完整填寫日期、門市與商品！');
+
+      try {
+        if (orderItemId) {
+          await supabaseClient
+            .from('order_items')
+            .update({
+              item_id: itemId,
+              quantity: qty,
+              actual_quantity: actualQty,
+              note: note
+            })
+            .eq('order_item_id', orderItemId);
+        } else {
+          let { data: existingOrder } = await supabaseClient
+            .from('orders')
+            .select('order_id')
+            .eq('store_id', storeId)
+            .eq('order_date', orderDate)
+            .eq('shift', shift)
+            .maybeSingle();
+
+          let orderId = existingOrder ? existingOrder.order_id : null;
+
+          if (!orderId) {
+            const { data: newOrder, error: oErr } = await supabaseClient
+              .from('orders')
+              .insert({ store_id: storeId, order_date: orderDate, shift: shift })
+              .select();
+            if (oErr) throw oErr;
+            orderId = newOrder[0].order_id;
+          }
+
+          const { error: oiErr } = await supabaseClient
+            .from('order_items')
+            .insert({
+              order_id: orderId,
+              item_id: itemId,
+              quantity: qty,
+              actual_quantity: actualQty,
+              note: note,
+              is_checked: false
+            });
+          if (oiErr) throw oiErr;
+        }
+
+        closeOrderModal();
+        await fetchManageOrders();
+        alert('🎉 訂單資料儲存成功！');
+      } catch (err) {
+        alert(`儲存失敗: ${err.message}`);
+      }
+    }
+
+    // ==========================================
+    // 3. 每月實出統計邏輯
+    // ==========================================
+    async function loadMonthlyData() {
+      const monthStr = document.getElementById('filter-month').value;
+      const tbody = document.getElementById('matrix-tbody');
+      tbody.innerHTML = '<tr><td colspan="10" class="text-center py-10 text-slate-400">正在統計月度數據...</td></tr>';
+
+      if (!monthStr) return;
+
+      const [year, month] = monthStr.split('-');
+      const startDate = `${year}-${month}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const endDate = `${year}-${month}-${String(lastDay).padStart(2, '0')}`;
+
+      try {
+        const { data, error } = await supabaseClient
+          .from('order_items')
+          .select(`
+            order_item_id,
+            quantity,
+            actual_quantity,
+            note,
+            orders!inner (
+              order_date,
+              stores!inner ( store_name )
+            ),
+            items!inner (
+              item_name,
+              categories ( category_name, priority )
+            )
+          `)
+          .gte('orders.order_date', startDate)
+          .lte('orders.order_date', endDate);
+
+        if (error) throw error;
+
+        currentMonthlyRawData = data || [];
+        renderMonthlyMatrixTable();
+
+      } catch (err) {
+        console.error('統計載入失敗:', err);
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center py-10 text-red-500">載入失敗: ${err.message}</td></tr>`;
+      }
+    }
+
+    function renderMonthlyMatrixTable() {
+      const selectedCat = document.getElementById('filter-monthly-category').value;
+      const searchKeyword = document.getElementById('filter-monthly-keyword').value.trim().toLowerCase();
+      const tbody = document.getElementById('matrix-tbody');
+      const tfoot = document.getElementById('matrix-tfoot');
+
+      let totalActualSum = 0;
+      let totalOrderedSum = 0;
+      let totalShortageSum = 0;
+
+      const itemMap = {};
+
+      currentMonthlyRawData.forEach(row => {
+        const itemName = row.items.item_name;
+        const categoryName = row.items.categories?.category_name || '未分類';
+        const priority = row.items.categories?.priority || 4;
+        const rawStoreName = row.orders.stores.store_name;
+        
+        const matchedStore = TARGET_STORES.find(s => s.includes(rawStoreName) || rawStoreName.includes(s));
+        if (!matchedStore) return;
+
+        const orderedQty = parseInt(row.quantity, 10) || 0;
+        let actualQty = orderedQty;
+        if (row.actual_quantity !== null && row.actual_quantity !== undefined) {
+          actualQty = parseInt(row.actual_quantity, 10);
+        } else if (row.note && row.note.includes('缺')) {
+          const match = row.note.match(/缺(\d+)/);
+          if (match) actualQty = Math.max(0, orderedQty - parseInt(match[1], 10));
+        }
+
+        const shortageQty = Math.max(0, orderedQty - actualQty);
+        totalActualSum += actualQty;
+        totalOrderedSum += orderedQty;
+        totalShortageSum += shortageQty;
+
+        if (!itemMap[itemName]) {
+          itemMap[itemName] = {
+            categoryName: categoryName,
+            priority: priority,
+            stores: {
+              '萬丹店(W)': 0,
+              '潮州店(C1)': 0,
+              '屏東店(P1)': 0,
+              '仁愛店(P2)': 0,
+              '木崎(C2)': 0,
+              '東港店(D)': 0
+            },
+            totalActual: 0,
+            totalOrdered: 0
+          };
+        }
+
+        itemMap[itemName].stores[matchedStore] += actualQty;
+        itemMap[itemName].totalActual += actualQty;
+        itemMap[itemName].totalOrdered += orderedQty;
+      });
+
+      document.getElementById('stat-total-actual').innerText = totalActualSum.toLocaleString();
+      document.getElementById('stat-total-ordered').innerText = totalOrderedSum.toLocaleString();
+      document.getElementById('stat-total-shortage').innerText = totalShortageSum.toLocaleString();
+
+      let itemsList = Object.keys(itemMap).map(name => ({
+        itemName: name,
+        ...itemMap[name]
+      }));
+
+      if (selectedCat) itemsList = itemsList.filter(i => i.categoryName === selectedCat);
+      if (searchKeyword) itemsList = itemsList.filter(i => i.itemName.toLowerCase().includes(searchKeyword));
+
+      itemsList.sort((a, b) => {
+        if (a.priority !== b.priority) return a.priority - b.priority;
+        return a.itemName.localeCompare(b.itemName, 'zh-Hant');
+      });
+
+      if (itemsList.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center py-10 text-slate-400">該月份查無出貨數據</td></tr>';
+        tfoot.innerHTML = '';
+        return;
+      }
+
+      const storeColumnSums = {
+        '萬丹店(W)': 0,
+        '潮州店(C1)': 0,
+        '屏東店(P1)': 0,
+        '仁愛店(P2)': 0,
+        '木崎(C2)': 0,
+        '東港店(D)': 0
+      };
+      let grandTotalActual = 0;
+
+      tbody.innerHTML = itemsList.map((item, idx) => {
+        TARGET_STORES.forEach(s => {
+          storeColumnSums[s] += item.stores[s];
+        });
+        grandTotalActual += item.totalActual;
+
+        const storeColsHtml = TARGET_STORES.map(s => {
+          const qty = item.stores[s];
+          const displayVal = qty > 0 ? `<span class="font-bold text-slate-800">${qty}</span>` : `<span class="text-slate-300">-</span>`;
+          return `<td class="p-3 text-center border-r whitespace-nowrap">${displayVal}</td>`;
+        }).join('');
+
+        return `
+          <tr class="hover:bg-indigo-50/40 transition">
+            <td class="p-3 text-center text-slate-400 border-r">${idx + 1}</td>
+            <td class="p-3 font-bold text-slate-900 border-r whitespace-nowrap">${item.itemName}</td>
+            <td class="p-3 text-slate-500 border-r whitespace-nowrap">${item.categoryName}</td>
+            ${storeColsHtml}
+            <td class="p-3 text-center font-black text-indigo-700 bg-amber-50/50 whitespace-nowrap">${item.totalActual}</td>
+          </tr>
+        `;
+      }).join('');
+
+      const footStoreCols = TARGET_STORES.map(s => {
+        return `<td class="p-3 text-center border-r text-slate-900 font-black whitespace-nowrap">${storeColumnSums[s]}</td>`;
+      }).join('');
+
+      tfoot.innerHTML = `
+        <tr>
+          <td colspan="3" class="p-3 text-right pr-4 border-r font-bold text-slate-700 whitespace-nowrap">各店實際出貨總計：</td>
+          ${footStoreCols}
+          <td class="p-3 text-center font-black text-indigo-900 bg-amber-100 text-sm whitespace-nowrap">${grandTotalActual}</td>
+        </tr>
+      `;
+    }
+
+    function exportToCSV() {
+      const monthStr = document.getElementById('filter-month').value || 'monthly_report';
+      let csvContent = '\uFEFF';
+      csvContent += '品項名稱,商品分類,萬丹店(W),潮州店(C1),屏東店(P1),仁愛店(P2),木崎(C2),東港店(D),合計實出\n';
+
+      const rows = document.querySelectorAll('#matrix-tbody tr');
+      rows.forEach(tr => {
+        const cols = tr.querySelectorAll('td');
+        if (cols.length >= 10) {
+          const rowData = [
+            `"${cols[1].innerText.trim()}"`,
+            `"${cols[2].innerText.trim()}"`,
+            cols[3].innerText.trim().replace('-', '0'),
+            cols[4].innerText.trim().replace('-', '0'),
+            cols[5].innerText.trim().replace('-', '0'),
+            cols[6].innerText.trim().replace('-', '0'),
+            cols[7].innerText.trim().replace('-', '0'),
+            cols[8].innerText.trim().replace('-', '0'),
+            cols[9].innerText.trim()
+          ];
+          csvContent += rowData.join(',') + '\n';
+        }
+      });
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `各門市出貨量統計_${monthStr}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
   </script>
 </body>
