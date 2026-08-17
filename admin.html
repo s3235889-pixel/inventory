@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>門市叫貨出貨與訂單管理系統 (Supabase版)</title>
+  <title>門市叫貨出貨與訂單管理系統 (Supabase版 - 支援自訂勾選門市)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- 引入 Supabase 官方 SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -51,7 +51,6 @@
       }
       .print-grid {
         display: grid !important;
-        grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
         gap: 3px !important;
         page-break-inside: avoid !important;
       }
@@ -61,6 +60,8 @@
         border: 1px solid #475569 !important;
         box-shadow: none !important;
         border-radius: 3px !important;
+        opacity: 1 !important;
+        filter: none !important;
       }
       .print-header {
         border-bottom: 2px solid #0f172a !important;
@@ -108,19 +109,30 @@
     .row-shortage td {
       color: #9f1239 !important;
     }
+
+    .store-card-completed {
+      opacity: 0.45 !important;
+      filter: grayscale(20%);
+      transition: all 0.3s ease;
+      border-color: #10b981 !important;
+    }
+    .store-card-completed:hover {
+      opacity: 0.85 !important;
+      filter: none;
+    }
   </style>
 </head>
 <body class="bg-slate-100 p-3 md:p-4 min-h-screen relative text-slate-800">
 
   <div class="max-w-[1500px] mx-auto space-y-4 print-area pb-12">
     
-    <!-- 頂部標題與分頁頁籤 (列印時隱藏) -->
+    <!-- 頂部標題與分頁頁籤 -->
     <div class="bg-slate-900 text-white p-4 rounded-2xl shadow-lg flex flex-wrap justify-between items-center gap-4 no-print">
       <div>
         <h1 class="text-xl font-bold flex items-center gap-2">
           📦 門市叫貨出貨與訂單管理系統
         </h1>
-        <p class="text-xs text-slate-300 mt-1">門市順序：萬丹 ➔ 潮州 ➔ 屏東 ➔ 仁愛 ➔ 木崎 ➔ 東港</p>
+        <p class="text-xs text-slate-300 mt-1">門市順序：潮州 ➔ 木崎 ➔ 東港 ➔ 萬丹 ➔ 仁愛 ➔ 屏東 (支援自訂勾選顯示門市)</p>
       </div>
 
       <!-- 分頁切換鈕 -->
@@ -144,7 +156,7 @@
       
       <!-- 每日控制面板 -->
       <div class="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 space-y-3 no-print">
-        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 items-center">
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 items-center">
           
           <div>
             <label class="block text-xs font-bold text-slate-600 mb-1">📅 選擇叫貨日期</label>
@@ -157,19 +169,6 @@
               <option value="">全部時段 (下午 + 打烊)</option>
               <option value="下午">☀️ 下午時段</option>
               <option value="打烊">🌙 打烊時段</option>
-            </select>
-          </div>
-
-          <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1">🏪 門市快速過濾</label>
-            <select id="filter-store" onchange="renderDailyData()" class="border p-2 rounded-lg w-full text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
-              <option value="">顯示全部 6 店</option>
-              <option value="萬丹店(W)">萬丹店(W)</option>
-              <option value="潮州店(C1)">潮州店(C1)</option>
-              <option value="屏東店(P1)">屏東店(P1)</option>
-              <option value="仁愛店(P2)">仁愛店(P2)</option>
-              <option value="木崎(C2)">木崎(C2)</option>
-              <option value="東港店(D)">東港店(D)</option>
             </select>
           </div>
 
@@ -191,12 +190,28 @@
           </div>
 
         </div>
+
+        <!-- 🌟 門市多選勾選盒區塊 (自訂顯示哪些門市) -->
+        <div class="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs font-bold text-slate-700 flex items-center gap-1">🏪 勾選顯示門市：</span>
+            <div id="store-checkbox-group" class="flex flex-wrap items-center gap-2 text-xs">
+              <!-- 動態生成 6 店勾選盒 -->
+            </div>
+          </div>
+
+          <div class="flex items-center gap-1.5">
+            <button onclick="toggleAllStores(true)" class="text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1 rounded border">全選</button>
+            <button onclick="toggleAllStores(false)" class="text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1 rounded border">清空</button>
+          </div>
+        </div>
+
       </div>
 
       <!-- 列印抬頭 -->
       <div class="print-header flex justify-between items-end pb-1 border-b-2 border-slate-800">
         <div>
-          <h2 class="text-base font-black text-slate-900">📊 各門市叫貨出貨核對總表 (6門市一頁式)</h2>
+          <h2 class="text-base font-black text-slate-900">📊 各門市叫貨出貨核對總表</h2>
           <p class="text-[10px] text-slate-500">列印時間：<span id="print-timestamp"></span></p>
         </div>
         <div class="text-right text-[11px] text-slate-700">
@@ -205,8 +220,8 @@
         </div>
       </div>
 
-      <!-- 每日 6 門市卡片容器 -->
-      <div id="daily-data-container" class="print-grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+      <!-- 每日門市卡片容器 -->
+      <div id="daily-data-container" class="print-grid grid gap-2">
         <div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border">
           資料載入中...
         </div>
@@ -219,7 +234,6 @@
     <!-- ========================================== -->
     <div id="tab-manage-content" class="space-y-4 hidden no-print">
       
-      <!-- 篩選與新增控制面板 -->
       <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap justify-between items-center gap-4">
         <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
           <div>
@@ -231,12 +245,12 @@
             <label class="block text-xs font-bold text-slate-600 mb-1">🏪 門市篩選</label>
             <select id="manage-filter-store" onchange="fetchManageOrders()" class="border p-2 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
               <option value="">全部門市</option>
-              <option value="萬丹店(W)">萬丹店(W)</option>
               <option value="潮州店(C1)">潮州店(C1)</option>
-              <option value="屏東店(P1)">屏東店(P1)</option>
-              <option value="仁愛店(P2)">仁愛店(P2)</option>
               <option value="木崎(C2)">木崎(C2)</option>
               <option value="東港店(D)">東港店(D)</option>
+              <option value="萬丹店(W)">萬丹店(W)</option>
+              <option value="仁愛店(P2)">仁愛店(P2)</option>
+              <option value="屏東店(P1)">屏東店(P1)</option>
             </select>
           </div>
 
@@ -255,7 +269,6 @@
           </div>
         </div>
 
-        <!-- 批量操作與新增按鈕 -->
         <div class="flex items-center gap-2">
           <button id="btn-manage-batch-delete" onclick="deleteSelectedManageItems()" class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3.5 py-2.5 rounded-lg transition shadow hidden flex items-center gap-1">
             🗑️ 批量刪除 (0)
@@ -266,7 +279,6 @@
         </div>
       </div>
 
-      <!-- 訂單明細管理表格 -->
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div class="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
           <h2 class="text-sm font-bold text-slate-800">📋 訂單叫貨明細清單</h2>
@@ -347,22 +359,17 @@
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div class="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
           <h2 class="text-sm font-bold text-slate-800">📦 各門市商品【實際出貨量】矩陣統計表</h2>
-          <span class="text-[11px] text-slate-400">※ 數值已自動扣除缺貨數量</span>
+          <span class="text-[11px] text-slate-400">※ 數值已自動扣除缺貨數量 (僅統計已勾選門市)</span>
         </div>
 
         <div class="overflow-x-auto">
           <table class="w-full text-left text-xs border-collapse">
             <thead class="bg-slate-100 border-b text-slate-600 font-bold">
-              <tr>
+              <tr id="matrix-header-row">
                 <th class="p-3 w-12 text-center border-r">#</th>
                 <th class="p-3 w-48 border-r whitespace-nowrap">商品名稱</th>
                 <th class="p-3 w-28 border-r whitespace-nowrap">商品分類</th>
-                <th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">萬丹店(W)</th>
-                <th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">潮州店(C1)</th>
-                <th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">屏東店(P1)</th>
-                <th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">仁愛店(P2)</th>
-                <th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">木崎(C2)</th>
-                <th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">東港店(D)</th>
+                <!-- 動態插入已勾選門市標頭 -->
                 <th class="p-3 text-center bg-amber-50 text-amber-900 font-black whitespace-nowrap">合計實出</th>
               </tr>
             </thead>
@@ -425,7 +432,7 @@
 
         <div>
           <label class="block text-xs font-bold text-slate-600 mb-1">缺貨/出貨備註</label>
-          <input type="text" id="modal-order-note" placeholder="例如：缺1(實出1) 或 正常出貨" class="w-full border p-2 rounded-lg text-xs text-slate-800 focus:outline-indigo-500">
+          <input type="text" id="modal-order-note" placeholder="例如：缺1(實出1) 或 正常" class="w-full border p-2 rounded-lg text-xs text-slate-800 focus:outline-indigo-500">
         </div>
       </div>
 
@@ -442,14 +449,27 @@
 
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+    // 🌟 指定 6 大門市自訂預設順序：潮州 -> 木崎 -> 東港 -> 萬丹 -> 仁愛 -> 屏東
     const TARGET_STORES = [
-      '萬丹店(W)',
       '潮州店(C1)', 
-      '屏東店(P1)', 
-      '仁愛店(P2)', 
       '木崎(C2)', 
-      '東港店(D)'
+      '東港店(D)',
+      '萬丹店(W)',
+      '仁愛店(P2)', 
+      '屏東店(P1)'
     ];
+
+    // 當前已勾選要顯示的門市（預設全部選取）
+    let selectedStoresSet = new Set(TARGET_STORES);
+
+    function getStoreWeight(storeName) {
+      for (let i = 0; i < TARGET_STORES.length; i++) {
+        if (storeName.includes(TARGET_STORES[i]) || TARGET_STORES[i].includes(storeName)) {
+          return i + 1;
+        }
+      }
+      return 99;
+    }
 
     let currentDailyData = [];
     let currentMonthlyRawData = [];
@@ -467,9 +487,53 @@
       document.getElementById('manage-filter-date').value = today;
       document.getElementById('filter-month').value = currentMonth;
 
+      renderStoreCheckboxes();
       await loadBaseDropdowns();
       await fetchDailyData();
     });
+
+    // 🌟 渲染門市勾選盒 UI
+    function renderStoreCheckboxes() {
+      const group = document.getElementById('store-checkbox-group');
+      if (!group) return;
+      group.innerHTML = '';
+
+      TARGET_STORES.forEach(storeName => {
+        const isChecked = selectedStoresSet.has(storeName);
+        const label = document.createElement('label');
+        label.className = `flex items-center gap-1 px-2 py-1 rounded-lg border cursor-pointer font-bold transition-all ${
+          isChecked ? 'bg-indigo-50 border-indigo-300 text-indigo-700 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-400'
+        }`;
+        label.innerHTML = `
+          <input type="checkbox" value="${storeName}" ${isChecked ? 'checked' : ''} onchange="handleStoreCheckboxChange(this)" class="w-3.5 h-3.5 accent-indigo-600 rounded">
+          <span>${storeName}</span>
+        `;
+        group.appendChild(label);
+      });
+    }
+
+    function handleStoreCheckboxChange(checkbox) {
+      const storeName = checkbox.value;
+      if (checkbox.checked) {
+        selectedStoresSet.add(storeName);
+      } else {
+        selectedStoresSet.delete(storeName);
+      }
+      renderStoreCheckboxes();
+      renderDailyData();
+      renderMonthlyMatrixTable();
+    }
+
+    function toggleAllStores(selectAll) {
+      if (selectAll) {
+        selectedStoresSet = new Set(TARGET_STORES);
+      } else {
+        selectedStoresSet.clear();
+      }
+      renderStoreCheckboxes();
+      renderDailyData();
+      renderMonthlyMatrixTable();
+    }
 
     function switchMainTab(tab) {
       const btnDaily = document.getElementById('btn-tab-daily');
@@ -508,12 +572,12 @@
     async function loadBaseDropdowns() {
       const [catRes, storeRes, itemRes] = await Promise.all([
         supabaseClient.from('categories').select('*').order('priority', { ascending: true }),
-        supabaseClient.from('stores').select('*').order('sort_order', { ascending: true }),
+        supabaseClient.from('stores').select('*'),
         supabaseClient.from('items').select('item_id, item_name, store_id')
       ]);
 
       categoriesList = catRes.data || [];
-      allStoresList = storeRes.data || [];
+      allStoresList = (storeRes.data || []).sort((a, b) => getStoreWeight(a.store_name) - getStoreWeight(b.store_name));
       allItemsList = itemRes.data || [];
 
       const selectMonthlyCat = document.getElementById('filter-monthly-category');
@@ -546,8 +610,26 @@
     // ==========================================
     // 1. 每日出貨總表邏輯
     // ==========================================
+    function updateStoreCardCompletionState(cardElement) {
+      if (!cardElement) return;
+      const checkboxes = cardElement.querySelectorAll('.item-check-input');
+      const badge = cardElement.querySelector('.store-completed-badge');
+
+      if (checkboxes.length > 0) {
+        const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+        if (allChecked) {
+          cardElement.classList.add('store-card-completed');
+          if (badge) badge.classList.remove('hidden');
+        } else {
+          cardElement.classList.remove('store-card-completed');
+          if (badge) badge.classList.add('hidden');
+        }
+      }
+    }
+
     async function toggleRowCheck(checkbox, orderItemId) {
       const row = checkbox.closest('tr');
+      const storeCard = checkbox.closest('.print-card');
       const isChecked = checkbox.checked;
 
       if (isChecked) {
@@ -555,6 +637,8 @@
       } else {
         row.classList.remove('row-checked');
       }
+
+      updateStoreCardCompletionState(storeCard);
 
       if (orderItemId) {
         await supabaseClient
@@ -574,7 +658,7 @@
 
       if (shortQty === 0) {
         actualQty = orderedQty;
-        note = '正常出貨';
+        note = '正常';
         selectEl.className = 'shortage-select bg-white border border-emerald-300 rounded text-[10px] p-0.5 font-bold text-emerald-600 focus:outline-none cursor-pointer';
         row.classList.remove('row-shortage');
         if (printLabel) printLabel.innerText = '';
@@ -654,7 +738,7 @@
         : 'shortage-select bg-white border border-emerald-300 rounded text-[10px] p-0.5 font-bold text-emerald-600 focus:outline-none cursor-pointer';
 
       let optionsHTML = '';
-      optionsHTML += `<option value="0" class="text-emerald-600 font-bold" ${currentShortage === 0 ? 'selected' : ''}>正常出貨</option>`;
+      optionsHTML += `<option value="0" class="text-emerald-600 font-bold" ${currentShortage === 0 ? 'selected' : ''}>正常</option>`;
 
       const maxShortOption = Math.max(10, orderedQty);
       for (let s = 1; s <= maxShortOption; s++) {
@@ -676,18 +760,29 @@
       updateTimestamp();
       const selectedDate = document.getElementById('filter-date').value;
       const selectedShift = document.getElementById('filter-shift').value;
-      const selectedStore = document.getElementById('filter-store').value;
       const container = document.getElementById('daily-data-container');
 
       document.getElementById('summary-date').innerText = selectedDate || '全部日期';
       document.getElementById('summary-shift').innerText = selectedShift ? `${selectedShift}時段` : '全部時段';
 
+      // 取得當前已勾選的門市
+      const displayStores = TARGET_STORES.filter(s => selectedStoresSet.has(s));
+
+      if (displayStores.length === 0) {
+        container.innerHTML = '<div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border">請至少勾選一間門市以顯示資料</div>';
+        return;
+      }
+
+      // 動態調整 Grid 欄位排版
+      const colsCount = displayStores.length;
+      container.className = `print-grid grid grid-cols-1 sm:grid-cols-2 md:grid-cols-${Math.min(3, colsCount)} lg:grid-cols-${colsCount} gap-2`;
+
       const storeDataMap = {};
-      TARGET_STORES.forEach(store => storeDataMap[store] = []);
+      displayStores.forEach(store => storeDataMap[store] = []);
 
       currentDailyData.forEach(row => {
         const storeName = row.orders.stores.store_name;
-        const matchedStore = TARGET_STORES.find(s => s.includes(storeName) || storeName.includes(s));
+        const matchedStore = displayStores.find(s => s.includes(storeName) || storeName.includes(s));
 
         if (matchedStore) {
           storeDataMap[matchedStore].push({
@@ -705,17 +800,17 @@
 
       container.innerHTML = '';
 
-      let displayStores = TARGET_STORES;
-      if (selectedStore) {
-        displayStores = TARGET_STORES.filter(s => s === selectedStore);
-      }
-
       displayStores.forEach(storeName => {
         let itemsList = storeDataMap[storeName] || [];
         itemsList.sort((a, b) => a.priority - b.priority);
 
         const storeCard = document.createElement('div');
-        storeCard.className = 'print-card bg-white rounded border border-slate-300 overflow-hidden shadow-sm flex flex-col justify-between';
+        storeCard.className = 'print-card bg-white rounded border border-slate-300 overflow-hidden shadow-sm flex flex-col justify-between transition-all duration-300';
+
+        const isAllChecked = (itemsList.length > 0) && itemsList.every(i => i.isChecked);
+        if (isAllChecked) {
+          storeCard.classList.add('store-card-completed');
+        }
 
         let rowsHtml = '';
         if (itemsList.length === 0) {
@@ -743,7 +838,7 @@
                   ${shortageSelectHtml}
                 </td>
                 <td class="text-center w-4 no-print">
-                  <input type="checkbox" ${item.isChecked ? 'checked' : ''} onchange="toggleRowCheck(this, ${item.orderItemId})" class="w-3.5 h-3.5 accent-indigo-600 rounded cursor-pointer align-middle">
+                  <input type="checkbox" ${item.isChecked ? 'checked' : ''} onchange="toggleRowCheck(this, ${item.orderItemId})" class="item-check-input w-3.5 h-3.5 accent-indigo-600 rounded cursor-pointer align-middle">
                 </td>
               </tr>
             `;
@@ -753,7 +848,10 @@
         storeCard.innerHTML = `
           <div>
             <div class="bg-slate-800 text-white px-1.5 py-0.5 flex justify-between items-center print:bg-slate-900">
-              <span class="font-bold dynamic-store-title truncate">🏪 ${storeName}</span>
+              <span class="font-bold dynamic-store-title truncate flex items-center gap-1">
+                <span>🏪 ${storeName}</span>
+                <span class="store-completed-badge ${isAllChecked ? '' : 'hidden'} text-[9px] bg-emerald-500 text-white px-1 rounded font-bold">已全出</span>
+              </span>
               <span class="text-[9px] bg-slate-700 px-1 rounded text-slate-200">${itemsList.length}項</span>
             </div>
             <table class="dynamic-text-table w-full text-left">
@@ -762,7 +860,7 @@
                   <th class="text-center w-3.5">#</th>
                   <th class="whitespace-nowrap">品項</th>
                   <th class="text-center w-6">叫</th>
-                  <th class="text-center w-24 whitespace-nowrap">出貨/缺貨</th>
+                  <th class="text-center w-24 whitespace-nowrap">狀態</th>
                   <th class="text-center w-4 no-print">核</th>
                 </tr>
               </thead>
@@ -818,7 +916,13 @@
         const { data, error } = await query;
         if (error) throw error;
 
-        currentManageData = data || [];
+        currentManageData = (data || []).sort((a, b) => {
+          const wA = getStoreWeight(a.orders.stores.store_name);
+          const wB = getStoreWeight(b.orders.stores.store_name);
+          if (wA !== wB) return wA - wB;
+          return b.order_item_id - a.order_item_id;
+        });
+
         renderManageTable();
       } catch (err) {
         console.error(err);
@@ -1103,6 +1207,30 @@
       const searchKeyword = document.getElementById('filter-monthly-keyword').value.trim().toLowerCase();
       const tbody = document.getElementById('matrix-tbody');
       const tfoot = document.getElementById('matrix-tfoot');
+      const headerRow = document.getElementById('matrix-header-row');
+
+      // 取得當前已勾選的門市
+      const displayStores = TARGET_STORES.filter(s => selectedStoresSet.has(s));
+
+      // 動態更新表頭
+      if (headerRow) {
+        let headersHtml = `
+          <th class="p-3 w-12 text-center border-r">#</th>
+          <th class="p-3 w-48 border-r whitespace-nowrap">商品名稱</th>
+          <th class="p-3 w-28 border-r whitespace-nowrap">商品分類</th>
+        `;
+        displayStores.forEach(s => {
+          headersHtml += `<th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">${s}</th>`;
+        });
+        headersHtml += `<th class="p-3 text-center bg-amber-50 text-amber-900 font-black whitespace-nowrap">合計實出</th>`;
+        headerRow.innerHTML = headersHtml;
+      }
+
+      if (displayStores.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center py-10 text-slate-400">請勾選至少一間門市以進行月度統計</td></tr>';
+        tfoot.innerHTML = '';
+        return;
+      }
 
       let totalActualSum = 0;
       let totalOrderedSum = 0;
@@ -1116,7 +1244,7 @@
         const priority = row.items.categories?.priority || 4;
         const rawStoreName = row.orders.stores.store_name;
         
-        const matchedStore = TARGET_STORES.find(s => s.includes(rawStoreName) || rawStoreName.includes(s));
+        const matchedStore = displayStores.find(s => s.includes(rawStoreName) || rawStoreName.includes(s));
         if (!matchedStore) return;
 
         const orderedQty = parseInt(row.quantity, 10) || 0;
@@ -1137,20 +1265,14 @@
           itemMap[itemName] = {
             categoryName: categoryName,
             priority: priority,
-            stores: {
-              '萬丹店(W)': 0,
-              '潮州店(C1)': 0,
-              '屏東店(P1)': 0,
-              '仁愛店(P2)': 0,
-              '木崎(C2)': 0,
-              '東港店(D)': 0
-            },
+            stores: {},
             totalActual: 0,
             totalOrdered: 0
           };
+          displayStores.forEach(s => itemMap[itemName].stores[s] = 0);
         }
 
-        itemMap[itemName].stores[matchedStore] += actualQty;
+        itemMap[itemName].stores[matchedStore] = (itemMap[itemName].stores[matchedStore] || 0) + actualQty;
         itemMap[itemName].totalActual += actualQty;
         itemMap[itemName].totalOrdered += orderedQty;
       });
@@ -1178,24 +1300,18 @@
         return;
       }
 
-      const storeColumnSums = {
-        '萬丹店(W)': 0,
-        '潮州店(C1)': 0,
-        '屏東店(P1)': 0,
-        '仁愛店(P2)': 0,
-        '木崎(C2)': 0,
-        '東港店(D)': 0
-      };
+      const storeColumnSums = {};
+      displayStores.forEach(s => storeColumnSums[s] = 0);
       let grandTotalActual = 0;
 
       tbody.innerHTML = itemsList.map((item, idx) => {
-        TARGET_STORES.forEach(s => {
-          storeColumnSums[s] += item.stores[s];
+        displayStores.forEach(s => {
+          storeColumnSums[s] += (item.stores[s] || 0);
         });
         grandTotalActual += item.totalActual;
 
-        const storeColsHtml = TARGET_STORES.map(s => {
-          const qty = item.stores[s];
+        const storeColsHtml = displayStores.map(s => {
+          const qty = item.stores[s] || 0;
           const displayVal = qty > 0 ? `<span class="font-bold text-slate-800">${qty}</span>` : `<span class="text-slate-300">-</span>`;
           return `<td class="p-3 text-center border-r whitespace-nowrap">${displayVal}</td>`;
         }).join('');
@@ -1211,7 +1327,7 @@
         `;
       }).join('');
 
-      const footStoreCols = TARGET_STORES.map(s => {
+      const footStoreCols = displayStores.map(s => {
         return `<td class="p-3 text-center border-r text-slate-900 font-black whitespace-nowrap">${storeColumnSums[s]}</td>`;
       }).join('');
 
@@ -1226,24 +1342,23 @@
 
     function exportToCSV() {
       const monthStr = document.getElementById('filter-month').value || 'monthly_report';
+      const displayStores = TARGET_STORES.filter(s => selectedStoresSet.has(s));
+
       let csvContent = '\uFEFF';
-      csvContent += '品項名稱,商品分類,萬丹店(W),潮州店(C1),屏東店(P1),仁愛店(P2),木崎(C2),東港店(D),合計實出\n';
+      csvContent += `品項名稱,商品分類,${displayStores.join(',')},合計實出\n`;
 
       const rows = document.querySelectorAll('#matrix-tbody tr');
       rows.forEach(tr => {
         const cols = tr.querySelectorAll('td');
-        if (cols.length >= 10) {
+        if (cols.length >= (displayStores.length + 4)) {
           const rowData = [
             `"${cols[1].innerText.trim()}"`,
-            `"${cols[2].innerText.trim()}"`,
-            cols[3].innerText.trim().replace('-', '0'),
-            cols[4].innerText.trim().replace('-', '0'),
-            cols[5].innerText.trim().replace('-', '0'),
-            cols[6].innerText.trim().replace('-', '0'),
-            cols[7].innerText.trim().replace('-', '0'),
-            cols[8].innerText.trim().replace('-', '0'),
-            cols[9].innerText.trim()
+            `"${cols[2].innerText.trim()}"`
           ];
+          for (let i = 0; i < displayStores.length; i++) {
+            rowData.push(cols[3 + i].innerText.trim().replace('-', '0'));
+          }
+          rowData.push(cols[3 + displayStores.length].innerText.trim());
           csvContent += rowData.join(',') + '\n';
         }
       });
