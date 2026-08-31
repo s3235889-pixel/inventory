@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>門市商品與類別管理後台 (Supabase 版)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 引入 Supabase SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 p-4 md:p-6">
+
+  <div class="max-w-7xl mx-auto space-y-6">
+    
+    <!-- 頂部頁籤區塊 -->
+    <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-lg flex flex-wrap justify-between items-center gap-4">
+      <div>
+        <h1 class="text-xl font-bold flex items-center gap-2">
+          ⚙️ 門市商品與類別管理後台
+        </h1>
+        <p class="text-xs text-slate-300 mt-1">即時新增、刪除、修改品項與分類排序 (對接 Supabase 資料庫)</p>
+      </div>
+
+      <!-- 分頁切換按鈕 -->
+      <div class="flex gap-2 bg-slate-800 p-1.5 rounded-xl border border-slate-700">
+        <button id="tab-items-btn" onclick="switchTab('items')" class="px-4 py-2 text-xs font-bold rounded-lg bg-indigo-600 text-white transition">
+          📦 商品品項管理
+        </button>
+        <button id="tab-categories-btn" onclick="switchTab('categories')" class="px-4 py-2 text-xs font-bold rounded-lg hover:bg-slate-700 text-slate-300 transition">
+          🏷️ 分類與排序管理
+        </button>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 1. 品項管理區塊 (Items Management) -->
+    <!-- ========================================== -->
+    <div id="section-items" class="space-y-4">
+      
+      <!-- 控制列: 搜尋、篩選與批量操作 -->
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap justify-between items-center gap-3">
+        <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          <input type="text" id="item-search" oninput="renderItemsTable()" placeholder="🔍 搜尋商品名稱..." class="border p-2 rounded-lg text-xs w-full md:w-60 focus:outline-none focus:border-indigo-500">
+          
+          <select id="item-filter-category" onchange="renderItemsTable()" class="border p-2 rounded-lg text-xs bg-slate-50 focus:outline-none">
+            <option value="">全部分類</option>
+          </select>
+
+          <select id="item-filter-store" onchange="renderItemsTable()" class="border p-2 rounded-lg text-xs bg-slate-50 focus:outline-none">
+            <option value="">全部門市 (含通用與獨有)</option>
+            <option value="NULL">🌐 僅顯示全店通用商品</option>
+          </select>
+        </div>
+
+        <div class="flex items-center gap-2 w-full md:w-auto justify-end">
+          <!-- 🗑️ 批量刪除按鈕 (動態顯示) -->
+          <button id="btn-batch-delete-items" onclick="deleteSelectedItems()" class="bg-rose-600 hover:bg-rose-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition hidden flex items-center gap-1 shadow-md shadow-rose-200">
+            🗑️ 批量刪除品項 (0)
+          </button>
+          <button onclick="openItemModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition flex items-center justify-center gap-1">
+            ➕ 新增商品品項
+          </button>
+        </div>
+      </div>
+
+      <!-- 品項表格 -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-100 border-b text-slate-600 font-bold">
+            <tr>
+              <th class="p-3 w-10 text-center">
+                <input type="checkbox" id="select-all-items" onchange="toggleSelectAllItems(this.checked)" class="w-4 h-4 text-indigo-600 rounded cursor-pointer align-middle">
+              </th>
+              <th class="p-3 w-12 text-center">#</th>
+              <th class="p-3">商品名稱</th>
+              <th class="p-3">所屬分類</th>
+              <th class="p-3">適用門市</th>
+              <th class="p-3 text-right pr-6 w-32">操作</th>
+            </tr>
+          </thead>
+          <tbody id="items-tbody" class="divide-y divide-slate-100">
+            <tr><td colspan="6" class="text-center py-8 text-slate-400">載入中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 2. 分類管理區塊 (Categories Management) -->
+    <!-- ========================================== -->
+    <div id="section-categories" class="space-y-4 hidden">
+      
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex justify-between items-center">
+        <div>
+          <h2 class="text-sm font-bold text-slate-800">🏷️ 商品類別與排序優先權</h2>
+          <p class="text-[11px] text-slate-400 mt-0.5">數字越小代表排越前面 (例如 1: 甜品冷藏食材, 2: 鯛魚燒食材)</p>
+        </div>
+        <button onclick="openCategoryModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition">
+          ➕ 新增分類
+        </button>
+      </div>
+
+      <!-- 分類表格 -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden max-w-3xl">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-100 border-b text-slate-600 font-bold">
+            <tr>
+              <th class="p-3 w-16 text-center">ID</th>
+              <th class="p-3">分類名稱</th>
+              <th class="p-3 w-28 text-center">排序優先權</th>
+              <th class="p-3 text-right pr-6 w-32">操作</th>
+            </tr>
+          </thead>
+          <tbody id="categories-tbody" class="divide-y divide-slate-100">
+            <tr><td colspan="4" class="text-center py-8 text-slate-400">載入中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 模態框：新增/編輯品項 (Item Modal) -->
+  <!-- ========================================== -->
+  <div id="item-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex justify-center items-center hidden p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <h3 id="item-modal-title" class="text-base font-bold text-slate-900">新增商品品項</h3>
+      <input type="hidden" id="edit-item-id">
+
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">商品名稱 *</label>
+          <input type="text" id="modal-item-name" placeholder="請輸入商品名稱" class="w-full border p-2 rounded-lg text-xs font-bold text-slate-800 focus:outline-indigo-500">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">所屬分類 *</label>
+          <select id="modal-item-category" class="w-full border p-2 rounded-lg text-xs font-bold text-slate-800 focus:outline-indigo-500">
+            <!-- 動態載入 -->
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">適用門市 *</label>
+          <select id="modal-item-store" class="w-full border p-2 rounded-lg text-xs font-bold text-slate-800 focus:outline-indigo-500">
+            <option value="NULL">🌐 全店通用 (所有門市皆可叫貨)</option>
+            <!-- 動態載入 -->
+          </select>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button onclick="closeItemModal()" class="px-4 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg">取消</button>
+        <button onclick="saveItem()" class="px-4 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">儲存商品</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 模態框：新增/編輯分類 (Category Modal) -->
+  <!-- ========================================== -->
+  <div id="category-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex justify-center items-center hidden p-4">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+      <h3 id="category-modal-title" class="text-base font-bold text-slate-900">新增分類</h3>
+      <input type="hidden" id="edit-category-id">
+
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">分類名稱 *</label>
+          <input type="text" id="modal-category-name" placeholder="例如：甜品冷藏食材" class="w-full border p-2 rounded-lg text-xs font-bold text-slate-800 focus:outline-indigo-500">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">排序優先權 (Priority) *</label>
+          <input type="number" id="modal-category-priority" value="4" min="1" class="w-full border p-2 rounded-lg text-xs font-bold text-slate-800 focus:outline-indigo-500">
+          <p class="text-[10px] text-slate-400 mt-1">1: 冷藏 (最前), 2: 鯛魚燒, 3: 乾貨, 4: 其他</p>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button onclick="closeCategoryModal()" class="px-4 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg">取消</button>
+        <button onclick="saveCategory()" class="px-4 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">儲存分類</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 🔑 帶入 Supabase 專案設定
+    const SUPABASE_URL = 'https://rjetwgrelmvciatouwiw.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_Zvf4B53wK4tXQAIWOGiaYQ_KSxVO5MZ';
+
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // 全局資料快取
+    let categoriesList = [];
+    let storesList = [];
+    let itemsList = [];
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      await loadBaseData();
+      await loadItems();
+    });
+
+    // 切換分頁
+    function switchTab(tab) {
+      const btnItems = document.getElementById('tab-items-btn');
+      const btnCategories = document.getElementById('tab-categories-btn');
+      const secItems = document.getElementById('section-items');
+      const secCategories = document.getElementById('section-categories');
+
+      if (tab === 'items') {
+        btnItems.className = 'px-4 py-2 text-xs font-bold rounded-lg bg-indigo-600 text-white transition';
+        btnCategories.className = 'px-4 py-2 text-xs font-bold rounded-lg hover:bg-slate-700 text-slate-300 transition';
+        secItems.classList.remove('hidden');
+        secCategories.classList.add('hidden');
+      } else {
+        btnCategories.className = 'px-4 py-2 text-xs font-bold rounded-lg bg-indigo-600 text-white transition';
+        btnItems.className = 'px-4 py-2 text-xs font-bold rounded-lg hover:bg-slate-700 text-slate-300 transition';
+        secCategories.classList.remove('hidden');
+        secItems.classList.add('hidden');
+      }
+    }
+
+    // 載入基礎資料 (Categories & Stores)
+    async function loadBaseData() {
+      const { data: catData } = await supabaseClient.from('categories').select('*').order('priority', { ascending: true });
+      categoriesList = catData || [];
+
+      const { data: storeData } = await supabaseClient.from('stores').select('*').order('sort_order', { ascending: true });
+      storesList = storeData || [];
+
+      const filterCat = document.getElementById('item-filter-category');
+      const modalCat = document.getElementById('modal-item-category');
+      
+      let catOptions = '<option value="">全部分類</option>';
+      let modalCatOptions = '';
+      categoriesList.forEach(c => {
+        catOptions += `<option value="${c.category_id}">${c.category_name} (Priority: ${c.priority})</option>`;
+        modalCatOptions += `<option value="${c.category_id}">${c.category_name}</option>`;
+      });
+      filterCat.innerHTML = catOptions;
+      modalCat.innerHTML = modalCatOptions;
+
+      const filterStore = document.getElementById('item-filter-store');
+      const modalStore = document.getElementById('modal-item-store');
+
+      let storeOptions = '<option value="">全部門市 (含通用與獨有)</option><option value="NULL">🌐 僅顯示全店通用商品</option>';
+      let modalStoreOptions = '<option value="NULL">🌐 全店通用 (所有門市皆可叫貨)</option>';
+      
+      storesList.forEach(s => {
+        storeOptions += `<option value="${s.store_id}">${s.store_name}</option>`;
+        modalStoreOptions += `<option value="${s.store_id}">${s.store_name}</option>`;
+      });
+      filterStore.innerHTML = storeOptions;
+      modalStore.innerHTML = modalStoreOptions;
+
+      renderCategoriesTable();
+    }
+
+    // 載入品項資料
+    async function loadItems() {
+      const { data, error } = await supabaseClient
+        .from('items')
+        .select(`
+          item_id,
+          item_name,
+          category_id,
+          store_id,
+          categories ( category_name, priority ),
+          stores ( store_name )
+        `)
+        .order('item_id', { ascending: false });
+
+      if (error) console.error(error);
+      itemsList = data || [];
+      renderItemsTable();
+    }
+
+    // 繪製品項表格
+    function renderItemsTable() {
+      const searchKeyword = document.getElementById('item-search').value.trim().toLowerCase();
+      const catFilter = document.getElementById('item-filter-category').value;
+      const storeFilter = document.getElementById('item-filter-store').value;
+      const tbody = document.getElementById('items-tbody');
+
+      // 重設全選框
+      const selectAll = document.getElementById('select-all-items');
+      if (selectAll) selectAll.checked = false;
+
+      let filtered = itemsList.filter(item => {
+        if (searchKeyword && !item.item_name.toLowerCase().includes(searchKeyword)) return false;
+        if (catFilter && String(item.category_id) !== String(catFilter)) return false;
+        
+        if (storeFilter === 'NULL' && item.store_id !== null) return false;
+        if (storeFilter && storeFilter !== 'NULL' && String(item.store_id) !== String(storeFilter)) return false;
+
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-slate-400">查無對應商品品項</td></tr>';
+        updateBatchDeleteBtn();
+        return;
+      }
+
+      tbody.innerHTML = filtered.map((item, idx) => {
+        const catName = item.categories ? item.categories.category_name : '<span class="text-slate-300">未分類</span>';
+        const storeBadge = item.stores 
+          ? `<span class="bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-200">🏪 ${item.stores.store_name}</span>`
+          : `<span class="bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded border border-emerald-200">🌐 全店通用</span>`;
+
+        return `
+          <tr class="hover:bg-slate-50 transition">
+            <td class="p-3 text-center">
+              <input type="checkbox" class="item-checkbox w-4 h-4 text-indigo-600 rounded cursor-pointer align-middle" data-id="${item.item_id}" data-name="${item.item_name}" onchange="updateBatchDeleteBtn()">
+            </td>
+            <td class="p-3 text-center text-slate-400">${idx + 1}</td>
+            <td class="p-3 font-bold text-slate-800">${item.item_name}</td>
+            <td class="p-3 font-semibold text-slate-600">${catName}</td>
+            <td class="p-3">${storeBadge}</td>
+            <td class="p-3 text-right pr-6 space-x-1">
+              <button onclick="editItem(${item.item_id})" class="px-2.5 py-1 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded font-bold transition">✏️ 編輯</button>
+              <button onclick="deleteItem(${item.item_id}, '${item.item_name}')" class="px-2.5 py-1 text-rose-500 hover:bg-rose-50 rounded font-bold transition">🗑️ 刪除</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      updateBatchDeleteBtn();
+    }
+
+    // 🔲 控制品項全選 / 全不選
+    function toggleSelectAllItems(isChecked) {
+      const checkboxes = document.querySelectorAll('.item-checkbox');
+      checkboxes.forEach(cb => cb.checked = isChecked);
+      updateBatchDeleteBtn();
+    }
+
+    // 🔄 更新批量刪除按鈕狀態
+    function updateBatchDeleteBtn() {
+      const checkedBoxes = document.querySelectorAll('.item-checkbox:checked');
+      const allBoxes = document.querySelectorAll('.item-checkbox');
+      const batchBtn = document.getElementById('btn-batch-delete-items');
+      const selectAll = document.getElementById('select-all-items');
+
+      if (batchBtn) {
+        if (checkedBoxes.length > 0) {
+          batchBtn.innerText = `🗑️ 批量刪除 (${checkedBoxes.length})`;
+          batchBtn.classList.remove('hidden');
+        } else {
+          batchBtn.classList.add('hidden');
+        }
+      }
+
+      if (selectAll && allBoxes.length > 0) {
+        selectAll.checked = (checkedBoxes.length === allBoxes.length);
+      }
+    }
+
+    // 🚀 一次批量刪除選中的品項
+    async function deleteSelectedItems() {
+      const checkedBoxes = document.querySelectorAll('.item-checkbox:checked');
+      const selectedIds = Array.from(checkedBoxes).map(cb => parseInt(cb.getAttribute('data-id'), 10));
+
+      if (selectedIds.length === 0) return;
+
+      if (!confirm(`⚠️ 確定要一次刪除勾選的 ${selectedIds.length} 個商品品項嗎？\n（若該品項有歷史叫貨紀錄，明細也將一併刪除）`)) {
+        return;
+      }
+
+      const batchBtn = document.getElementById('btn-batch-delete-items');
+      batchBtn.disabled = true;
+      batchBtn.innerText = '正在刪除中...';
+
+      try {
+        const { error } = await supabaseClient
+          .from('items')
+          .delete()
+          .in('item_id', selectedIds);
+
+        if (error) throw error;
+
+        alert(`🎉 已成功刪除 ${selectedIds.length} 個商品品項！`);
+        await loadItems();
+      } catch (err) {
+        alert(`批量刪除失敗：${err.message}`);
+      } finally {
+        batchBtn.disabled = false;
+      }
+    }
+
+    // 繪製分類表格
+    function renderCategoriesTable() {
+      const tbody = document.getElementById('categories-tbody');
+      if (categoriesList.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-8 text-slate-400">無分類資料</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = categoriesList.map(c => `
+        <tr class="hover:bg-slate-50 transition">
+          <td class="p-3 text-center text-slate-400 font-mono">${c.category_id}</td>
+          <td class="p-3 font-bold text-slate-800">${c.category_name}</td>
+          <td class="p-3 text-center font-black text-indigo-600">${c.priority}</td>
+          <td class="p-3 text-right pr-6 space-x-1">
+            <button onclick="editCategory(${c.category_id}, '${c.category_name}', ${c.priority})" class="px-2.5 py-1 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded font-bold transition">✏️ 編輯</button>
+            <button onclick="deleteCategory(${c.category_id}, '${c.category_name}')" class="px-2.5 py-1 text-rose-500 hover:bg-rose-50 rounded font-bold transition">🗑️ 刪除</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // Modal 與 CRUD 操作 - 品項 (Items)
+    function openItemModal() {
+      document.getElementById('edit-item-id').value = '';
+      document.getElementById('item-modal-title').innerText = '新增商品品項';
+      document.getElementById('modal-item-name').value = '';
+      document.getElementById('item-modal').classList.remove('hidden');
+    }
+
+    function closeItemModal() {
+      document.getElementById('item-modal').classList.add('hidden');
+    }
+
+    function editItem(itemId) {
+      const item = itemsList.find(i => i.item_id === itemId);
+      if (!item) return;
+
+      document.getElementById('edit-item-id').value = item.item_id;
+      document.getElementById('item-modal-title').innerText = '編輯商品品項';
+      document.getElementById('modal-item-name').value = item.item_name;
+      document.getElementById('modal-item-category').value = item.category_id || '';
+      document.getElementById('modal-item-store').value = item.store_id || 'NULL';
+      document.getElementById('item-modal').classList.remove('hidden');
+    }
+
+    async function saveItem() {
+      const editId = document.getElementById('edit-item-id').value;
+      const itemName = document.getElementById('modal-item-name').value.trim();
+      const categoryId = document.getElementById('modal-item-category').value;
+      const storeVal = document.getElementById('modal-item-store').value;
+      const storeId = storeVal === 'NULL' ? null : parseInt(storeVal, 10);
+
+      if (!itemName) {
+        alert('請填寫商品名稱！');
+        return;
+      }
+
+      const payload = {
+        item_name: itemName,
+        category_id: categoryId ? parseInt(categoryId, 10) : null,
+        store_id: storeId
+      };
+
+      if (editId) {
+        await supabaseClient.from('items').update(payload).eq('item_id', editId);
+      } else {
+        await supabaseClient.from('items').insert(payload);
+      }
+
+      closeItemModal();
+      await loadItems();
+    }
+
+    async function deleteItem(itemId, name) {
+      if (!confirm(`確定要刪除商品【${name}】嗎？`)) return;
+      await supabaseClient.from('items').delete().eq('item_id', itemId);
+      await loadItems();
+    }
+
+    // Modal 與 CRUD 操作 - 分類 (Categories)
+    function openCategoryModal() {
+      document.getElementById('edit-category-id').value = '';
+      document.getElementById('category-modal-title').innerText = '新增商品分類';
+      document.getElementById('modal-category-name').value = '';
+      document.getElementById('modal-category-priority').value = '4';
+      document.getElementById('category-modal').classList.remove('hidden');
+    }
+
+    function closeCategoryModal() {
+      document.getElementById('category-modal').classList.add('hidden');
+    }
+
+    function editCategory(catId, name, priority) {
+      document.getElementById('edit-category-id').value = catId;
+      document.getElementById('category-modal-title').innerText = '編輯商品分類';
+      document.getElementById('modal-category-name').value = name;
+      document.getElementById('modal-category-priority').value = priority;
+      document.getElementById('category-modal').classList.remove('hidden');
+    }
+
+    async function saveCategory() {
+      const editId = document.getElementById('edit-category-id').value;
+      const name = document.getElementById('modal-category-name').value.trim();
+      const priority = parseInt(document.getElementById('modal-category-priority').value, 10) || 4;
+
+      if (!name) {
+        alert('請填寫分類名稱！');
+        return;
+      }
+
+      const payload = { category_name: name, priority: priority };
+
+      if (editId) {
+        await supabaseClient.from('categories').update(payload).eq('category_id', editId);
+      } else {
+        await supabaseClient.from('categories').insert(payload);
+      }
+
+      closeCategoryModal();
+      await loadBaseData();
+      await loadItems();
+    }
+
+    async function deleteCategory(catId, name) {
+      if (!confirm(`確定要刪除分類【${name}】嗎？`)) return;
+      await supabaseClient.from('categories').delete().eq('category_id', catId);
+      await loadBaseData();
+      await loadItems();
+    }
+  </script>
+</body>
+</html>
