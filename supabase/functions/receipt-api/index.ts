@@ -39,7 +39,7 @@ Deno.serve(async req=>{
   if((count||0)>=15)fail('主管登入嘗試過多，請 15 分鐘後再試',429);
   check((await db.from('receipt_login_attempts').insert({store_id:0})).error);
   const {data:config,error}=await db.from('receipt_admin_config').select('*').eq('id',1).single();check(error);
-  const password=String(body.password||'');if(password.length<10||password.length>128)fail('主管密碼請設定為 10 至 128 個字元');
+  const password=String(body.password||'');if(password.length<4||password.length>128)fail('主管密碼請設定為 4 至 128 個字元');
   if(action==='admin_setup'){
    const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',enc.encode(String(body.setup_token||''))))).map(x=>x.toString(16).padStart(2,'0')).join('');
    if(config.password_hash||digest!==config.setup_hash)fail('設定連結已失效或已使用',403);
@@ -107,7 +107,7 @@ Deno.serve(async req=>{
  }
  if(admin&&action==='change_password'){
  const current=String(body.current_password||''),next=String(body.new_password||'');
- if(current.length>128||next.length<10||next.length>128)fail('新密碼必須為 10 至 128 個字元');
+ if(current.length>128||next.length<4||next.length>128)fail('新密碼必須為 4 至 128 個字元');
  if(next===current)fail('新密碼不能與目前密碼相同');
  const {count,error:ce}=await db.from('receipt_login_attempts').select('id',{count:'exact',head:true}).eq('store_id',0).gte('created_at',new Date(Date.now()-15*60000).toISOString());check(ce);
  if((count||0)>=15)fail('嘗試次數過多，請 15 分鐘後再試',429);

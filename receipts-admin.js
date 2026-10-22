@@ -1,5 +1,5 @@
 const API='https://rjetwgrelmvciatouwiw.supabase.co/functions/v1/receipt-api',$=id=>document.getElementById(id);let token=sessionStorage.getItem('receipt-admin-session')||'',reports=[];
-const setupToken=location.hash.slice(1);history.replaceState(null,'',location.pathname);if(setupToken){document.querySelector('#login p').textContent='初次設定：請建立 10 個字元以上的主管密碼。此設定連結只能使用一次。';document.querySelector('#login-form button').textContent='設定密碼並登入';}
+const setupToken=location.hash.slice(1);history.replaceState(null,'',location.pathname);if(setupToken){document.querySelector('#login p').textContent='初次設定：請建立 4 個字元以上的主管密碼。此設定連結只能使用一次。';document.querySelector('#login-form button').textContent='設定密碼並登入';}
 function msg(s){$('message').textContent=s}
 async function api(action,body={}){const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({action,...body})});const d=await r.json();if(!r.ok)throw Error(d.error||'連線失敗');return d}
 $('month').value=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit'}).format(new Date()).slice(0,7);
