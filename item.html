@@ -227,7 +227,7 @@
       const { data: catData } = await supabaseClient.from('categories').select('*').order('priority', { ascending: true });
       categoriesList = catData || [];
 
-      const { data: storeData } = await supabaseClient.from('stores').select('*').order('sort_order', { ascending: true });
+      const { data: storeData } = await supabaseClient.from('stores').select('store_id,store_name,sort_order').order('sort_order', { ascending: true });
       storesList = storeData || [];
 
       const filterCat = document.getElementById('item-filter-category');

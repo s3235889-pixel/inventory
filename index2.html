@@ -58,6 +58,8 @@
 </div>
 </div>
 
+<nav class="flex gap-3 bg-white p-3 rounded-xl shadow-sm"><span class="font-bold text-indigo-700">叫貨／盤點</span><a href="receipts.html" class="font-bold text-emerald-700 underline">📷 帳條上傳</a></nav>
+
 <!-- 區塊 1：管理分類與品項 (收合) -->
 <details class="bg-white rounded-xl shadow-sm p-4 border border-slate-200">
 <summary class="font-semibold text-slate-700 cursor-pointer flex justify-between items-center text-sm">
@@ -302,7 +304,7 @@ function getStoreSortWeight(storeName) {
 
 let currentActiveStore = '';
 let currentStoreId = null;
-let storeMap = {};        // { '萬丹店(W)': { storeId: 4, password: '...' } }
+let storeMap = {}; // 門市名稱與編號；密碼由後端驗證
 let categoryMap = {};     // { '甜品冷藏食材': category_id }
 let rawCatalog = [];      // 品項目錄
 let inventoryData = [];   // 當前歷史紀錄
@@ -370,7 +372,7 @@ async function loadStoreListFromDB() {
   try {
     const { data: stores, error } = await supabaseClient
       .from('stores')
-      .select('store_id, store_name, password, sort_order');
+      .select('store_id, store_name, sort_order');
 
     if (error) throw error;
 
@@ -386,8 +388,7 @@ async function loadStoreListFromDB() {
 
     stores.forEach(s => {
       storeMap[s.store_name] = {
-        storeId: s.store_id,
-        password: String(s.password || '').trim()
+        storeId: s.store_id
       };
       select.innerHTML += `<option value="${s.store_name}">${s.store_name}</option>`;
     });
@@ -422,11 +423,15 @@ async function confirmStoreSelection() {
     return alert('查無該門市資訊，請重新整理！');
   }
 
-  if (storeInfo.password !== inputPassword) {
-    alert('❌ 密碼錯誤！請重新確認該門市之授權密碼。');
-    document.getElementById('store-password-input').value = '';
-    return;
-  }
+  try {
+    const response = await fetch('https://rjetwgrelmvciatouwiw.supabase.co/functions/v1/receipt-api', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({action:'login', store_id:storeInfo.storeId, password:inputPassword})
+    });
+    const login = await response.json();
+    if (!response.ok) throw new Error(login.error || '驗證失敗');
+    sessionStorage.setItem('receipt-session', JSON.stringify(login));
+  } catch (error) { alert(error.message || '連線失敗，請稍後重試'); return; }
 
   currentActiveStore = selectedStore;
   currentStoreId = storeInfo.storeId;
