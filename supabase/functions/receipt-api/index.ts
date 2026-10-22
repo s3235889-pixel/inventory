@@ -6,7 +6,7 @@ const enc = new TextEncoder();
 const key = await crypto.subtle.importKey('raw',enc.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']);
 const b64 = (b:Uint8Array)=>btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const bytes = (s:string)=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
-async function token(store:number,admin=false){const p=b64(enc.encode(JSON.stringify({store,admin,exp:Date.now()+8*3600000})));return p+'.'+b64(new Uint8Array(await crypto.subtle.sign('HMAC',key,enc.encode(p))));}
+async function token(store:number,admin=false,version=1){const p=b64(enc.encode(JSON.stringify({store,admin,version,exp:Date.now()+8*3600000})));return p+'.'+b64(new Uint8Array(await crypto.subtle.sign('HMAC',key,enc.encode(p))));}
 const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 function fail(message:string,status=400){throw {message,status};}
 function check(error:unknown){if(error) throw error;}
@@ -47,13 +47,17 @@ Deno.serve(async req=>{
    const {data:updated,error:ue}=await db.from('receipt_admin_config').update({password_hash:hash,salt,setup_hash:null}).eq('id',1).is('password_hash',null).eq('setup_hash',digest).select('id').single();check(ue);if(!updated)fail('設定連結已使用',403);
   }else if(!config.password_hash||await passwordHash(password,config.salt)!==config.password_hash)fail('主管密碼錯誤，或尚未完成初次設定',401);
   await db.from('receipt_login_attempts').delete().eq('store_id',0);
-  return Response.json({token:await token(0,true)},{headers});
+  return Response.json({token:await token(0,true,config.session_version)},{headers});
  }
  const bearer=req.headers.get('authorization')?.replace(/^Bearer /,'')||'';
  let store:number|null=null; let admin:string|null=null;
  if(bearer.split('.').length===2){
  const [p,s]=bearer.split('.');if(!await crypto.subtle.verify('HMAC',key,bytes(s),enc.encode(p)))fail('請重新登入',401);
- const payload=JSON.parse(new TextDecoder().decode(bytes(p)));if(payload.exp<Date.now())fail('登入已逾時，請重新登入',401);if(payload.admin===true)admin='shared';else store=payload.store;
+ const payload=JSON.parse(new TextDecoder().decode(bytes(p)));if(payload.exp<Date.now())fail('登入已逾時，請重新登入',401);if(payload.admin===true){
+ const {data:config,error}=await db.from('receipt_admin_config').select('session_version').eq('id',1).single();check(error);
+ if((payload.version??1)!==config.session_version)fail('主管密碼已更新，請使用新密碼重新登入',401);
+ admin='shared';
+ }else store=payload.store;
  }else{
  const {data,error}=await db.auth.getUser(bearer);if(error||!data.user||data.user.app_metadata?.receipts_admin!==true)fail('需要主管帳號授權',403);admin=data.user.id;
  }
@@ -100,6 +104,21 @@ Deno.serve(async req=>{
  if(error){if(hasPhoto)await db.storage.from('receipt-photos').remove([path]);if(error.code==='23505')fail('這個班別今天已上傳，請使用編輯功能',409);throw error;}
  }
  return Response.json({ok:true,date,shift},{headers});
+ }
+ if(admin&&action==='change_password'){
+ const current=String(body.current_password||''),next=String(body.new_password||'');
+ if(current.length>128||next.length<10||next.length>128)fail('新密碼必須為 10 至 128 個字元');
+ if(next===current)fail('新密碼不能與目前密碼相同');
+ const {count,error:ce}=await db.from('receipt_login_attempts').select('id',{count:'exact',head:true}).eq('store_id',0).gte('created_at',new Date(Date.now()-15*60000).toISOString());check(ce);
+ if((count||0)>=15)fail('嘗試次數過多，請 15 分鐘後再試',429);
+ check((await db.from('receipt_login_attempts').insert({store_id:0})).error);
+ const {data:config,error}=await db.from('receipt_admin_config').select('password_hash,salt,session_version').eq('id',1).single();check(error);
+ if(!config.password_hash||await passwordHash(current,config.salt)!==config.password_hash)fail('目前密碼不正確',403);
+ const salt=crypto.randomUUID(),hash=await passwordHash(next,salt);
+ const {data:changed,error:ue}=await db.from('receipt_admin_config').update({salt,password_hash:hash,session_version:config.session_version+1}).eq('id',1).eq('session_version',config.session_version).select('id');check(ue);
+ if(!changed?.length)fail('密碼已被更新，請重新登入',409);
+ await db.from('receipt_login_attempts').delete().eq('store_id',0);
+ return Response.json({ok:true},{headers});
  }
  if(admin&&action==='list'){
  const month=String(body.month||'');if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))fail('請選擇月份');

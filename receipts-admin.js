@@ -11,3 +11,14 @@ $('logout').onclick=async()=>{sessionStorage.removeItem('receipt-admin-session')
 $('export').onclick=()=>{const clean=v=>'"'+String(v??'').replace(/^[=+@-]/,"'$&").replaceAll('"','""')+'"';const rows=[['日期','分店','班別','總營收','熊貓營收','Uber 營收','現金營收','支出','已確認'],...reports.map(r=>[r.business_date,r.stores?.store_name,r.shift,r.revenue,r.foodpanda_revenue??'未填',r.uber_revenue??'未填',r.cash_revenue??'未填',r.expense,r.reviewed_at?'是':'否'])];const url=URL.createObjectURL(new Blob(['\ufeff'+rows.map(r=>r.map(clean).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='帳條月報-'+$('month').value+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
 
 if(token&&!setupToken){(async()=>{try{await load();const d=await api('stores');$('store').replaceChildren(new Option('全部分店',''),...d.stores.map(s=>new Option(s.store_name,s.store_id)));$('login').hidden=true;$('workspace').hidden=false}catch(e){sessionStorage.removeItem('receipt-admin-session');token='';msg(e.message)}})()}
+
+$('change-password-form').onsubmit=async e=>{
+ e.preventDefault();const output=$('password-message');
+ if($('new-password').value!==$('confirm-password').value){output.textContent='兩次新密碼不一致，請重新輸入。';return;}
+ const button=e.submitter;button.disabled=true;output.textContent='正在更新…';
+ try{await api('change_password',{current_password:$('current-password').value,new_password:$('new-password').value});
+ sessionStorage.removeItem('receipt-admin-session');token='';e.target.reset();
+ alert('主管密碼已更新，請使用新密碼重新登入。');
+ if(parent!==window)parent.location.reload();else location.reload();
+ }catch(error){output.textContent=error.message}finally{button.disabled=false}
+};
