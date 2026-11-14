@@ -10,6 +10,13 @@ async function token(store:number,admin=false,version=1){const p=b64(enc.encode(
 const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 function fail(message:string,status=400){throw {message,status};}
 function check(error:unknown){if(error) throw error;}
+// Omitted date preserves compatibility with older employee pages.
+function businessDate(value:unknown){
+ const date=value===undefined?today():String(value);
+ const parsed=new Date(date+'T00:00:00Z');
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||date<'1900-01-01'||!Number.isFinite(parsed.getTime())||parsed.toISOString().slice(0,10)!==date||date>today())fail('請選擇今天或以前的有效結帳日期');
+ return date;
+}
 async function passwordHash(password:string,salt:string){
  const material=await crypto.subtle.importKey('raw',enc.encode(password),'PBKDF2',false,['deriveBits']);
  return b64(new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt:enc.encode(salt),iterations:100000,hash:'SHA-256'},material,256)));
@@ -61,10 +68,16 @@ Deno.serve(async req=>{
  }else{
  const {data,error}=await db.auth.getUser(bearer);if(error||!data.user||data.user.app_metadata?.receipts_admin!==true)fail('需要主管帳號授權',403);admin=data.user.id;
  }
- if(action==='status'&&store){const {data,error}=await db.from('receipt_reports').select('shift').eq('store_id',store).eq('business_date',today());check(error);return Response.json({date:today(),submitted:data?.map(x=>x.shift)},{headers});}
- if(action==='edit'&&store){
- const {data,error}=await db.from('receipt_reports').select('id,shift,revenue,foodpanda_revenue,uber_revenue,cash_revenue,expense,updated_at').eq('store_id',store).eq('business_date',today()).eq('shift',String(body.shift)).maybeSingle();check(error);
- if(!data)fail('找不到今天此班別的帳條',404);
+ if(action==='month_status'&&store){
+ const month=String(body.month||'');
+ if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)||month<'1900-01'||month>today().slice(0,7))fail('請選擇本月或以前的月份');
+ const {data,error}=await db.from('receipt_reports').select('business_date,shift').eq('store_id',store).gte('business_date',month+'-01').lte('business_date',month+'-'+String(new Date(Number(month.slice(0,4)),Number(month.slice(5)),0).getDate()).padStart(2,'0')).order('business_date').limit(62);
+ check(error);return Response.json({month,today:today(),reports:data||[]},{headers});
+ }
+ if(action==='status'&&store){const date=businessDate(body.business_date);const {data,error}=await db.from('receipt_reports').select('shift').eq('store_id',store).eq('business_date',date);check(error);return Response.json({date,today:today(),submitted:data?.map(x=>x.shift)||[]},{headers});}
+ if(action==='edit'&&store){ const date=businessDate(body.business_date);
+ const {data,error}=await db.from('receipt_reports').select('id,shift,revenue,foodpanda_revenue,uber_revenue,cash_revenue,expense,updated_at').eq('store_id',store).eq('business_date',date).eq('shift',String(body.shift)).maybeSingle();check(error);
+ if(!data)fail('找不到所選日期此班別的帳條',404);
  return Response.json({report:data},{headers});
  }
  const adminUpdate=!!admin&&action==='admin_update';
@@ -86,10 +99,10 @@ Deno.serve(async req=>{
    if(raw===undefined||raw===null||String(raw).trim()===''||!Number.isFinite(value)||value<0||value>9999999999.99||Math.abs(value*100-Math.round(value*100))>=0.001)fail('請完整填寫熊貓、Uber、現金營收，無營收請填 0（最多小數兩位）');
    details[k]=value;
  }
- const date=adminUpdate?adminDate:today();let previous:{id:string,photo_path:string,updated_at:string}|null=null;
+ const date=adminUpdate?adminDate:businessDate(body.business_date);let previous:{id:string,photo_path:string,updated_at:string}|null=null;
  if(action==='update'||adminUpdate){
   const {data,error}=await db.from('receipt_reports').select('id,photo_path,updated_at').eq('id',String(body.id)).eq('store_id',store).eq('business_date',date).eq('shift',shift).maybeSingle();check(error);
-  if(!data)fail('只能修改自己分店當天已上傳的帳條',403);
+  if(!data)fail('只能修改自己分店所選日期與班別的帳條',403);
   if(!body.updated_at||body.updated_at!==data.updated_at)fail('這筆資料已更新，請重新載入後再修改',409);
   previous=data;
  }
@@ -108,7 +121,7 @@ Deno.serve(async req=>{
  if(hasPhoto&&path!==previous.photo_path)await db.storage.from('receipt-photos').remove([previous.photo_path]);
  }else{
  const {error}=await db.from('receipt_reports').insert({id,store_id:store,business_date:date,shift,revenue,expense,...details,photo_path:path});
- if(error){if(hasPhoto)await db.storage.from('receipt-photos').remove([path]);if(error.code==='23505')fail('這個班別今天已上傳，請使用編輯功能',409);throw error;}
+ if(error){if(hasPhoto)await db.storage.from('receipt-photos').remove([path]);if(error.code==='23505')fail('所選日期這個班別已上傳，請使用編輯功能',409);throw error;}
  }
  return Response.json({ok:true,date,shift},{headers});
  }
