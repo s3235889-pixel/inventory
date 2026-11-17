@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#365647">
+  <title>肉品庫存｜木崎叫貨系統</title>
+  <link rel="stylesheet" href="meat-inventory.css?v=20261117">
+  <script type="module" src="meat-inventory.js?v=20261117"></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="page-header">
+      <a class="back-link" href="index.html">← 回叫貨系統</a>
+      <span class="brand">木崎 <span>MUKI</span></span>
+    </header>
+
+    <section class="access-card" id="access-gate" aria-live="polite">
+      <span class="eyebrow">木崎專屬</span>
+      <h1>肉品庫存</h1>
+      <p id="access-message">正在確認門市登入狀態…</p>
+      <a class="button primary" id="access-login" href="index.html" hidden>回叫貨系統登入</a>
+      <button type="button" class="button quiet" id="access-retry" hidden>重試連線</button>
+    </section>
+
+    <div id="workspace" hidden>
+      <section class="hero">
+        <div>
+          <span class="eyebrow" id="store-name">木崎</span>
+          <h1>肉品庫存</h1>
+          <p>每天收店，記下剩餘與退冰份數。</p>
+        </div>
+        <span class="hero-mark" aria-hidden="true">夜間<br>盤點</span>
+      </section>
+
+      <section class="instructions" aria-label="盤點順序">
+        <strong>先盤冷藏，再拿出明天的肉。</strong>
+        <p>今晚新拿出的退冰肉，填在「今晚退冰」，不算進「今晚冷藏剩餘」。首次記錄先建立庫存，隔天開始計算用量。</p>
+      </section>
+
+      <section class="date-bar" aria-label="選擇盤點日期">
+        <div class="date-control">
+          <button type="button" class="icon-button" id="previous-day" aria-label="前一天">‹</button>
+          <label for="business-date"><span>盤點日期</span><input type="date" id="business-date" min="1900-01-01" required></label>
+          <button type="button" class="icon-button" id="next-day" aria-label="後一天">›</button>
+        </div>
+        <div class="date-actions">
+          <button type="button" class="button quiet" id="go-today">今天</button>
+          <button type="button" class="button quiet" id="refresh">重新讀取</button>
+        </div>
+      </section>
+
+      <div class="record-line"><span id="record-status">尚未儲存</span><span id="date-context"></span></div>
+      <div id="message" class="message" role="status" aria-live="polite" hidden></div>
+      <div id="conflict" class="conflict" role="alert" hidden>
+        <strong>這一天的資料已在其他地方更新。</strong>
+        <p>目前輸入仍留在畫面。請先確認內容，再重新讀取雲端資料後修改。</p>
+        <button type="button" class="button quiet" id="reload-conflict">重新讀取雲端資料</button>
+      </div>
+
+      <form id="inventory-form" novalidate>
+        <div class="meat-grid" id="meat-cards"></div>
+        <section class="note-card">
+          <label for="day-note">盤點備註 <span class="optional">選填</span></label>
+          <textarea id="day-note" maxlength="500" rows="2" placeholder="例如：明天有團體訂單、今天臨時補退冰"></textarea>
+          <p class="small-note">全部以「份」記錄，可填至小數一位。沒有剩餘或沒有退冰，請確實填 0。</p>
+        </section>
+        <div class="save-bar">
+          <span id="save-hint">三種肉一次儲存</span>
+          <button type="submit" class="button primary" id="save">儲存今晚盤點</button>
+        </div>
+      </form>
+
+      <section class="history-section" aria-labelledby="history-title">
+        <div class="section-heading">
+          <div><span class="eyebrow">用量紀錄</span><h2 id="history-title">本月統計</h2></div>
+          <button type="button" class="button quiet" id="export">匯出 CSV</button>
+        </div>
+        <div class="month-summary" id="month-summary"></div>
+        <p class="small-note">只加總有前一天盤點且數字有效的用量；未盤點的日期不視為 0。點選日期可查看或補登。</p>
+        <div class="history-scroll">
+          <table>
+            <caption class="sr-only">所選月份三種肉品的每日用量</caption>
+            <thead><tr><th scope="col">盤點日期</th><th scope="col">牛五花</th><th scope="col">豚梅花</th><th scope="col">雞胸肉</th><th scope="col">查看</th></tr></thead>
+            <tbody id="history-body"></tbody>
+          </table>
+        </div>
+        <p class="small-note" id="history-key">— 表示尚無有效用量；數字單位為份。</p>
+      </section>
+      <footer class="page-footer">資料儲存在雲端 · 僅限木崎門市登入使用</footer>
+    </div>
+  </main>
+</body>
+</html>
