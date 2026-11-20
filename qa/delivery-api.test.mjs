@@ -153,10 +153,24 @@ test('假JPG、SVG、MIME不符、空照片均不接觸儲存', async () => {
     assert.equal(calls.length, 0);
   }
 });
-test('照片不可同時替換與移除；一般讀取不能混入上傳', async () => {
-  const photo = new File([JPEG], 'a.jpg', { type: 'image/jpeg' });
-  assert.equal((await fixture().request(saveBody({ remove_photo: true }), { photo })).status, 400);
-  assert.equal((await fixture().request({ action: 'load', month: '2026-11' }, { photo })).status, 400);
+for (const [name, changes, withPhoto] of [
+  ['舊頁文字編輯', { expected_version: 1, unit_name: '變更單位' }, false],
+  ['舊頁照片更換或補傳', { expected_version: 1 }, true],
+  ['移除照片', { remove_photo: true }, false],
+  ['同時傳入新圖與移除照片', { remove_photo: true }, true],
+]) {
+  test(`${name}在照片或資料寫入前回403 record_locked`, async () => {
+    const { request, calls } = fixture();
+    const result = await request(saveBody(changes), { photo: withPhoto ? new File([JPEG], 'a.jpg', { type: 'image/jpeg' }) : null });
+    assert.equal(result.status, 403);
+    assert.deepEqual(result.data, { error: '外送紀錄上傳後不可再編輯', code: 'record_locked' });
+    assert.deepEqual(calls, []);
+  });
+}
+test('一般讀取不能混入上傳', async () => {
+  const { request, calls } = fixture();
+  assert.equal((await request({ action: 'load', month: '2026-11' }, { photo: new File([JPEG], 'a.jpg', { type: 'image/jpeg' }) })).status, 400);
+  assert.deepEqual(calls, []);
 });
 test('實際本文超標、偽宣告超大本文及損壞multipart都拒絕', async () => {
   assert.equal((await fixture().request('x'.repeat(32769))).status, 413);
@@ -169,13 +183,16 @@ test('照片上傳失敗時不提交外送資料', async () => {
   assert.equal((await request(saveBody(), { photo: new File([JPEG], 'a.jpg', { type: 'image/jpeg' }) })).status, 503);
   assert.equal(calls.some(call => call[0] === 'save'), false);
 });
-test('DB明確拒絕交易只清除本次嘗試的新照片', async () => {
-  const { request, calls } = fixture({ saveRecord: async () => ({ data: null, error: { code: '40001', message: 'internal details' } }) });
-  const result = await request(saveBody(), { photo: new File([JPEG], 'a.jpg', { type: 'image/jpeg' }) });
-  assert.equal(result.status, 409);
-  assert.deepEqual(calls.find(call => call[0] === 'remove')[1], [calls.find(call => call[0] === 'upload')[1]]);
-  assert.equal(JSON.stringify(result.data).includes('internal details'), false);
-});
+for (const [code, status] of [['40001', 409], ['55000', 403]]) {
+  test(`DB明確拒絕交易${code}只清除本次嘗試的新照片`, async () => {
+    const { request, calls } = fixture({ saveRecord: async () => ({ data: null, error: { code, message: 'internal details' } }) });
+    const result = await request(saveBody(), { photo: new File([JPEG], 'a.jpg', { type: 'image/jpeg' }) });
+    assert.equal(result.status, status);
+    assert.deepEqual(calls.find(call => call[0] === 'remove')[1], [calls.find(call => call[0] === 'upload')[1]]);
+    assert.equal(JSON.stringify(result.data).includes('internal details'), false);
+    if (code === '55000') assert.deepEqual(result.data, { error: '外送紀錄上傳後不可再編輯', code: 'record_locked' });
+  });
+}
 test('DB結果不明時保留照片，避免誤刪可能已提交的單據', async () => {
   for (const saveRecord of [async () => { throw Error('network'); }, async () => ({ data: null, error: { message: 'transport' } }), async () => ({ data: null, error: null })]) {
     const { request, calls } = fixture({ saveRecord });

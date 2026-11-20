@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#293c69">
   <meta name="referrer" content="no-referrer">
   <title>外送記錄｜門市叫貨系統</title>
-  <link rel="stylesheet" href="delivery.css?v=20261120">
-  <script type="module" src="delivery.js?v=20261120"></script>
+  <link rel="stylesheet" href="delivery.css?v=20261120-lock1">
+  <script type="module" src="delivery.js?v=20261120-lock1"></script>
 </head>
 <body>
   <main class="shell">
@@ -33,13 +33,13 @@
       <section class="form-card" aria-labelledby="form-title">
         <div class="section-heading">
           <div><span class="eyebrow" id="form-mode">新增外送</span><h2 id="form-title">記下一筆外送</h2></div>
-          <button type="button" class="button secondary" id="new-record" hidden>取消編輯</button>
         </div>
+        <p id="upload-lock-note" class="message info">上傳成功後，資料與單據照片都不能再編輯。請確認內容後再送出；未附單據的紀錄，上傳後不能補傳照片。</p>
         <div id="message" class="message" role="status" aria-live="polite" hidden></div>
         <div id="conflict" class="message error" role="alert" hidden>
-          <strong>這筆紀錄已在其他畫面變更。</strong>
-          <p>目前輸入仍保留在畫面。請先記下需要的內容，再重新讀取並從紀錄清單選擇編輯。</p>
-          <button type="button" class="button secondary" id="reload-conflict">捨棄修改並重新讀取</button>
+          <strong>這筆資料無法再次上傳。</strong>
+          <p>已上傳的紀錄不能再修改。目前輸入與待傳照片仍保留在畫面，請先核對下方紀錄；若要填寫另一筆，請捨棄這份草稿後重新開始。</p>
+          <button type="button" class="button secondary" id="reload-conflict">捨棄草稿並重新讀取</button>
         </div>
         <form id="delivery-form" novalidate>
           <div class="form-grid">
@@ -52,7 +52,7 @@
           </div>
 
           <section class="photo-section" aria-labelledby="photo-title">
-            <div class="photo-heading"><div><h3 id="photo-title">外送單據 <span class="optional">選填</span></h3><p id="photo-summary">每筆可附一張照片，方便日後核對。</p></div><span class="photo-icon" aria-hidden="true">▧</span></div>
+            <div class="photo-heading"><div><h3 id="photo-title">外送單據 <span class="optional">選填</span></h3><p id="photo-summary">每筆可附一張照片，請在本次上傳前選取。</p></div><span class="photo-icon" aria-hidden="true">▧</span></div>
             <div class="photo-actions">
               <button type="button" class="button secondary" id="take-photo">拍照</button>
               <button type="button" class="button secondary" id="choose-photo">從相簿選取</button>
@@ -64,8 +64,6 @@
             <div id="photo-preview-wrap" class="photo-preview" hidden><img id="photo-preview" alt="準備上傳的外送單據預覽"><span>尚未儲存的新照片</span></div>
             <div class="photo-options">
               <button type="button" class="text-button" id="clear-photo" hidden>取消新照片</button>
-              <button type="button" class="text-button" id="view-existing-photo" hidden>查看已存單據</button>
-              <button type="button" class="text-button danger" id="remove-existing-photo" hidden>移除原單據</button>
             </div>
           </section>
 
@@ -80,7 +78,7 @@
           <article class="summary-card"><h3>外送總金額</h3><p><strong id="total-amount">—</strong><span>元</span></p></article>
           <article class="summary-card"><h3>外送總距離</h3><p><strong id="total-distance">—</strong><span>公里</span></p></article>
         </div>
-        <p id="history-description" class="section-note">統計涵蓋所選月份的全部紀錄。</p>
+        <p id="history-description" class="section-note">統計涵蓋所選月份的全部紀錄。已上傳的資料與單據不能再編輯。</p>
         <div id="list-state" class="list-state" role="status" aria-live="polite">正在讀取外送紀錄…</div>
         <div class="table-wrap" id="table-wrap" hidden>
           <table><caption class="sr-only">外送紀錄，依外送日期時間由新到舊排列</caption><thead><tr><th scope="col">日期與時間</th><th scope="col">外送單位／地址</th><th scope="col">外送人員</th><th scope="col">金額</th><th scope="col">距離</th><th scope="col">單據與操作</th></tr></thead><tbody id="history-body"></tbody></table>

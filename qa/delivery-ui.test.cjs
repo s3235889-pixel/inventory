@@ -40,14 +40,15 @@ async function harness(options = {}) {
   const w = dom.window;
   w.__deliveryCore = core;
   w.HTMLElement.prototype.scrollIntoView = function () {};
-  w.confirm = () => true;
+  const confirmations = [];
+  w.confirm = message => { confirmations.push(String(message)); return true; };
   Object.defineProperty(w.crypto, 'randomUUID', { value: randomUUID });
   let objectCounter = 0;
   w.URL.createObjectURL = () => `blob:test-${++objectCounter}`;
   w.URL.revokeObjectURL = () => {};
   if (session) w.sessionStorage.setItem('receipt-session', JSON.stringify(session));
   const h = {
-    dom, w, core, month, session, errors, requests: [], records: options.records || [],
+    dom, w, core, month, session, errors, confirmations, requests: [], records: options.records || [],
     handler: options.handler || null, decode: () => Promise.resolve(),
     $: id => w.document.getElementById(id),
     set(id, value) { const el = this.$(id); el.value = String(value); el.dispatchEvent(new w.Event('input', { bubbles: true })); },
@@ -75,8 +76,10 @@ async function harness(options = {}) {
       }
       if (body.action === 'save') {
         const old = this.records.find(row => row.id === body.id);
-        const record = { ...body, version: body.expected_version + 1, updated_at: new Date().toISOString(), has_photo: photo ? true : body.remove_photo ? false : !!old?.has_photo };
-        this.records = [record, ...this.records.filter(row => row.id !== record.id)];
+        if (old?.request_id === body.request_id) return response(200, { record: old });
+        if (old || body.expected_version !== 0 || body.remove_photo) return response(403, { error: '外送紀錄上傳後不可再編輯', code: 'record_locked' });
+        const record = { ...body, version: 1, updated_at: new Date().toISOString(), has_photo: !!photo };
+        this.records = [record, ...this.records];
         return response(200, { record });
       }
       if (body.action === 'delete') { this.records = this.records.filter(row => row.id !== body.id); return response(200, { ok: true }); }
@@ -135,7 +138,7 @@ test('required input is validated without treating blanks as zero', async () => 
   } finally { h.close(); }
 });
 
-test('saving uses explicit Taiwan time, trimmed values and zero-based new record version', async () => {
+test('saving confirms the permanent lock and creates a new record with explicit Taiwan time', async () => {
   const h = await harness();
   try {
     await h.ready(); h.fill(); h.submit(); await h.idle();
@@ -143,12 +146,35 @@ test('saving uses explicit Taiwan time, trimmed values and zero-based new record
     assert.equal(sent.unit_name, '潮州國小');
     assert.equal(sent.delivered_at, h.core.localDateTimeToISO(`${h.month}-01T00:05`));
     assert.equal(sent.expected_version, 0);
+    assert.equal(sent.remove_photo, false);
     assert.equal(sent.amount, 600.5); assert.equal(sent.distance_km, 2.35);
     assert.equal(Object.hasOwn(sent, 'store_id'), false);
     assert.equal(h.$('unit-name').value, '');
     assert.equal(h.$('courier').value, '小陳');
     assert.equal(h.$('total-count').textContent, '1');
-    assert.match(h.$('message').textContent, /已儲存/);
+    assert.match(h.$('message').textContent, /已上傳並鎖定/);
+    assert.match(h.confirmations[0], /所有欄位與單據照片都不能再編輯/);
+    assert.match(h.confirmations[0], /本次未附單據；送出後不能補傳照片/);
+    assert.equal(h.$('history-body').querySelector('[data-action="edit"]'), null);
+    assert.match(h.$('history-description').textContent, /已上傳的資料與單據不能再編輯/);
+  } finally { h.close(); }
+});
+
+test('canceling the upload confirmation preserves the draft and prepared photo', async () => {
+  const h = await harness();
+  try {
+    await h.ready(); h.fill(); h.photo(); await waitFor(() => !h.$('save').disabled);
+    const preview = h.$('photo-preview').src;
+    let confirmation = '';
+    h.w.confirm = message => { confirmation = message; return false; };
+    h.submit();
+    assert.match(confirmation, /單據照片將一併上傳，之後不能更換或移除/);
+    assert.equal(h.requests.filter(r => r.action === 'save').length, 0);
+    assert.equal(h.$('amount').value, '600.50'); assert.equal(h.$('photo-preview').src, preview);
+    assert.equal(h.$('photo-preview-wrap').hidden, false); assert.equal(h.$('save').disabled, false);
+    h.set('amount', '650'); h.w.confirm = () => true; h.submit(); await h.idle();
+    assert.equal(h.requests.find(r => r.action === 'save').amount, 650);
+    assert.equal(h.requests.find(r => r.action === 'save').hasUpload, true);
   } finally { h.close(); }
 });
 
@@ -176,15 +202,42 @@ test('changing an uncertain new draft keeps the record ID and changes only the o
   } finally { h.close(); }
 });
 
-test('concurrent edit conflicts keep the draft and cannot be blindly resubmitted', async () => {
-  const h = await harness({ handler: (body, h, photo) => body.action === 'save' ? response(409, { error: '另一個畫面已更新' }) : h.defaultResponse(body, photo) });
+test('a creation conflict keeps the draft and cannot be blindly resubmitted', async () => {
+  const h = await harness({ handler: (body, h, photo) => body.action === 'save' ? response(409, { error: '這筆紀錄已上傳或已刪除' }) : h.defaultResponse(body, photo) });
   try {
-    await h.ready(); h.records = [makeRow(h.month)]; h.click('refresh'); await h.idle();
-    h.w.document.querySelector('[data-action="edit"]').click(); h.set('amount', '800'); h.submit(); await h.idle();
+    await h.ready(); h.fill(); h.set('amount', '800'); h.submit(); await h.idle();
     assert.equal(h.$('amount').value, '800'); assert.equal(h.$('conflict').hidden, false); assert.equal(h.$('save').disabled, true);
     h.submit(); assert.equal(h.requests.filter(r => r.action === 'save').length, 1);
     h.w.confirm = () => false; h.click('reload-conflict'); assert.equal(h.$('amount').value, '800');
     h.w.confirm = () => true; h.click('reload-conflict'); await h.idle(); assert.equal(h.$('conflict').hidden, true);
+  } finally { h.close(); }
+});
+
+test('record_locked 403 keeps the session, draft and photo while preventing overwrite', async () => {
+  const h = await harness({ handler: (body, h, photo) => body.action === 'save'
+    ? response(403, { error: '外送紀錄上傳後不可再編輯', code: 'record_locked' }) : h.defaultResponse(body, photo) });
+  try {
+    await h.ready(); h.fill(); h.photo(); await waitFor(() => !h.$('save').disabled);
+    const preview = h.$('photo-preview').src;
+    h.submit(); await h.idle();
+    assert.equal(h.$('workspace').hidden, false); assert.equal(h.$('access-gate').hidden, true);
+    assert.equal(h.$('unit-name').value, ' 潮州國小 '); assert.equal(h.$('amount').value, '600.50');
+    assert.equal(h.$('photo-preview').src, preview); assert.equal(h.$('photo-preview-wrap').hidden, false);
+    assert.equal(JSON.parse(h.w.sessionStorage.getItem('receipt-session')).token, h.session.token);
+    assert.match(h.$('message').textContent, /上傳後不可再編輯/);
+    assert.equal(h.$('conflict').hidden, false); assert.equal(h.$('save').disabled, true);
+    h.submit(); assert.equal(h.requests.filter(r => r.action === 'save').length, 1);
+  } finally { h.close(); }
+});
+
+test('an authorization 403 still clears branch data and requires login', async () => {
+  const h = await harness({ handler: (body, h, photo) => body.action === 'save'
+    ? response(403, { error: '門市驗證失敗' }) : h.defaultResponse(body, photo) });
+  try {
+    await h.ready(); h.fill(); h.submit(); await h.idle();
+    assert.equal(h.$('workspace').hidden, true); assert.equal(h.$('access-login').hidden, false);
+    assert.equal(h.$('unit-name').value, ''); assert.equal(h.w.sessionStorage.getItem('receipt-session'), null);
+    assert.match(h.$('access-message').textContent, /門市驗證失敗/);
   } finally { h.close(); }
 });
 
@@ -216,14 +269,38 @@ test('unreadable photos never silently disappear from a submitted record', async
   } finally { h.close(); }
 });
 
-test('choosing a replacement after removing an old photo sends replacement without removal flag', async () => {
+test('photos can be canceled and reselected before the first upload', async () => {
   const h = await harness();
   try {
-    await h.ready(); h.records = [makeRow(h.month, { has_photo: true })]; h.click('refresh'); await h.idle();
-    h.w.document.querySelector('[data-action="edit"]').click(); h.click('remove-existing-photo'); h.photo();
-    await waitFor(() => !h.$('save').disabled); h.submit(); await h.idle();
+    await h.ready(); h.fill(); h.photo(); await waitFor(() => !h.$('save').disabled);
+    const firstPreview = h.$('photo-preview').src;
+    h.click('clear-photo'); assert.equal(h.$('photo-preview-wrap').hidden, true);
+    h.photo('correct-receipt.jpg');
+    await waitFor(() => !h.$('save').disabled); assert.notEqual(h.$('photo-preview').src, firstPreview);
+    h.submit(); await h.idle();
     const sent = h.requests.find(r => r.action === 'save');
-    assert.equal(sent.hasUpload, true); assert.equal(sent.remove_photo, false); assert.equal(sent.expected_version, 1);
+    assert.equal(sent.hasUpload, true); assert.equal(sent.remove_photo, false); assert.equal(sent.expected_version, 0);
+  } finally { h.close(); }
+});
+
+test('saved records expose only viewing and deletion and never refill the new-record form', async () => {
+  const h = await harness();
+  try {
+    await h.ready(); h.fill(); h.photo();
+    await waitFor(() => !h.$('save').disabled); h.submit(); await h.idle();
+    const saved = clone(h.records[0]);
+    assert.deepEqual(Array.from(h.$('history-body').querySelectorAll('button'), button => button.dataset.action), ['photo', 'delete']);
+    assert.equal(h.$('new-record'), null); assert.equal(h.$('view-existing-photo'), null); assert.equal(h.$('remove-existing-photo'), null);
+    assert.equal(h.$('unit-name').value, ''); assert.equal(h.$('photo-preview-wrap').hidden, true);
+    h.w.document.querySelector('[data-action="photo"]').click();
+    await waitFor(() => h.$('viewer-image').hasAttribute('src'));
+    assert.equal(h.$('unit-name').value, ''); assert.equal(h.$('form-mode').textContent, '新增外送');
+    assert.equal(h.$('photo-preview-wrap').hidden, true);
+    h.click('close-photo'); h.fill(); h.set('unit-name', '第二筆新外送'); h.submit(); await h.idle();
+    const saves = h.requests.filter(r => r.action === 'save');
+    assert.equal(saves.length, 2); assert.notEqual(saves[0].id, saves[1].id);
+    assert.equal(saves[1].expected_version, 0); assert.equal(saves[1].remove_photo, false); assert.equal(saves[1].hasUpload, false);
+    assert.deepEqual(h.records.find(row => row.id === saved.id), saved);
   } finally { h.close(); }
 });
 

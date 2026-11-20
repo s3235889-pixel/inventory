@@ -39,9 +39,11 @@ export type Dependencies = {
 
 class RequestError extends Error {
   status: number;
-  constructor(message: string, status = 400) { super(message); this.status = status; }
+  code?: string;
+  constructor(message: string, status = 400, code?: string) { super(message); this.status = status; this.code = code; }
 }
-function fail(message: string, status = 400): never { throw new RequestError(message, status); }
+function fail(message: string, status = 400, code?: string): never { throw new RequestError(message, status, code); }
+function recordLocked(): never { fail('外送紀錄上傳後不可再編輯', 403, 'record_locked'); }
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -172,7 +174,8 @@ async function readPhoto(photo: File): Promise<{ bytes: Uint8Array; mime: string
   return { bytes, mime, ext, hash: await digest(bytes) };
 }
 function databaseFailure(error: DatabaseError): never {
-  if (error.code === '40001' || error.code === '23505') fail('這筆紀錄已由其他畫面更新或刪除，請重新載入後再編輯', 409);
+  if (error.code === '55000') recordLocked();
+  if (error.code === '40001' || error.code === '23505') fail('這筆紀錄的狀態已變更或已刪除，請重新載入確認', 409);
   if (error.code === 'P0002') fail('找不到這筆外送紀錄，請重新載入', 404);
   if (error.code === '42501') fail('沒有權限操作這筆外送紀錄', 403);
   if (error.code === '22023' || error.code === '23514') fail('外送資料不完整或格式有誤，請檢查後再儲存', 400);
@@ -218,7 +221,9 @@ export function createHandler(dependencies: Dependencies) {
         const expectedVersion = version(body.expected_version, true);
         if (body.remove_photo !== undefined && typeof body.remove_photo !== 'boolean') fail('照片移除選項無效');
         const removePhoto = body.remove_photo === true;
-        if (photo && removePhoto) fail('請選擇替換或移除照片其中一項');
+        // Cached pages may still submit edits. Reject them before reading or uploading a photo.
+        // Version zero is a new record or an exact retry; the database decides which.
+        if (expectedVersion > 0 || removePhoto) recordLocked();
         const record = {
           unit_name: textField(body.unit_name, '外送單位名稱', 100), address: textField(body.address, '地址', 300),
           courier: textField(body.courier, '外送人員', 60), delivered_at: deliveredAt(body.delivered_at),
@@ -272,7 +277,7 @@ export function createHandler(dependencies: Dependencies) {
       }
       fail('不支援的外送記錄操作');
     } catch (error) {
-      if (error instanceof RequestError) return Response.json({ error: error.message }, { status: error.status, headers });
+      if (error instanceof RequestError) return Response.json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, { status: error.status, headers });
       return Response.json({ error: '連線暫時異常，請稍後再試；若剛送出儲存，請保留內容並重試確認。' }, { status: 503, headers });
     }
   };

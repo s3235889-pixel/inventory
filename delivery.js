@@ -9,13 +9,13 @@ const format = value => Number.isFinite(Number(value)) ? numberFormat.format(Num
 const state = {
   session: null, loaded: false, listReady: false, loading: false, mutating: false,
   records: [], month: taipeiDateTime().slice(0, 7), page: 0, totalCount: 0, hasMore: false,
-  original: null, newId: crypto.randomUUID(), dirty: false, signature: '', conflict: false,
-  pendingSave: null, photo: null, photoURL: '', photoBusy: false, photoError: '', removePhoto: false,
+  newId: crypto.randomUUID(), dirty: false, signature: '', conflict: false,
+  pendingSave: null, photo: null, photoURL: '', photoBusy: false, photoError: '',
   photoVersion: 0, loadVersion: 0, viewerVersion: 0, viewerId: null,
 };
 
 class ApiError extends Error {
-  constructor(message, status = 0) { super(message); this.status = status; }
+  constructor(message, status = 0, code = '') { super(message); this.status = status; this.code = code; }
 }
 
 function readSession() {
@@ -82,7 +82,6 @@ function invalidateSession(message) {
   state.mutating = false;
   state.listReady = false;
   state.records = [];
-  state.original = null;
   state.pendingSave = null;
   state.dirty = false;
   state.conflict = false;
@@ -98,6 +97,7 @@ function invalidateSession(message) {
 }
 
 function handleFailure(error) {
+  if (error.status === 403 && error.code === 'record_locked') return false;
   if (error.status === 401 || error.status === 403) {
     const message = error.message || '門市登入已失效。';
     invalidateSession(error.status === 401
@@ -113,35 +113,27 @@ function busy() { return state.loading || state.mutating; }
 function syncControls() {
   const blocked = busy();
   document.querySelectorAll('#delivery-form input, #delivery-form textarea, #delivery-form button').forEach(el => { el.disabled = blocked; });
-  for (const id of ['new-record', 'history-month', 'refresh', 'access-retry', 'reload-conflict']) $(id).disabled = blocked;
+  for (const id of ['history-month', 'refresh', 'access-retry', 'reload-conflict']) $(id).disabled = blocked;
   $('save').disabled = blocked || !state.loaded || state.photoBusy || !!state.photoError || state.conflict;
-  $('save').textContent = state.mutating ? '儲存中…' : state.photoBusy ? '照片處理中…' : state.original ? '儲存修改' : '儲存外送記錄';
+  $('save').textContent = state.mutating ? '儲存中…' : state.photoBusy ? '照片處理中…' : '儲存外送記錄';
   $('save-hint').textContent = state.photoError ? '請重新選照片或取消新照片' : state.dirty ? '有尚未儲存的內容' : '金額以新台幣記錄';
   $('delivery-form').setAttribute('aria-busy', String(state.mutating || state.photoBusy));
   $('previous-page').disabled = blocked || !state.listReady || state.page === 0;
   $('next-page').disabled = blocked || !state.listReady || !state.hasMore;
   document.querySelectorAll('#history-body button').forEach(el => { el.disabled = blocked; });
-  $('new-record').hidden = !state.original;
   $('conflict').hidden = !state.conflict;
   $('photo-preview-wrap').hidden = !state.photoURL;
   $('clear-photo').hidden = !state.photo && !state.photoError && !state.photoBusy;
-  $('view-existing-photo').hidden = !state.original?.has_photo;
-  $('remove-existing-photo').hidden = !state.original?.has_photo;
-  $('remove-existing-photo').textContent = state.removePhoto ? '保留原單據' : '移除原單據';
   $('photo-feedback').textContent = state.photoBusy ? '正在整理照片，完成後即可儲存…' : state.photoError;
   $('photo-feedback').hidden = !state.photoBusy && !state.photoError;
   $('photo-feedback').className = `photo-feedback${state.photoError ? ' error' : ''}`;
   $('photo-summary').textContent = state.photo
-    ? '新照片會在儲存時一併上傳。'
-    : state.removePhoto && state.original?.has_photo
-      ? '儲存後會移除這筆紀錄的原單據照片。'
-      : state.original?.has_photo
-        ? '這筆已有單據。選取新照片即可更換。'
-        : '每筆可附一張照片，方便日後核對。';
+    ? '照片會隨資料一併上傳，成功後不能更換或移除。'
+    : '每筆可附一張照片，請在本次上傳前選取。未附單據送出後不能補傳。';
 }
 
 function signature() {
-  return JSON.stringify([...Object.values(fields).map(id => $(id).value), state.removePhoto, state.photoVersion]);
+  return JSON.stringify([...Object.values(fields).map(id => $(id).value), state.photoVersion]);
 }
 
 function markChanged() {
@@ -153,10 +145,8 @@ function markChanged() {
 
 function resetForm({ courier = '' } = {}) {
   clearNewPhoto();
-  state.original = null;
   state.newId = crypto.randomUUID();
   state.pendingSave = null;
-  state.removePhoto = false;
   state.conflict = false;
   $('delivery-form').reset();
   $('courier').value = courier;
@@ -190,7 +180,7 @@ async function api(action, body = {}, form = null) {
   try { data = await response.json(); }
   catch { throw new ApiError(action === 'save' ? '伺服器回應不完整，尚無法確認儲存結果。請保留輸入並重試。' : '伺服器回應不完整，請稍後再試。', response.status); }
   if (!sameSession()) throw new ApiError('門市登入已變更，請回叫貨系統重新開啟外送記錄。', 403);
-  if (!response.ok) throw new ApiError(data.error || '操作未完成，請稍後再試。', response.status);
+  if (!response.ok) throw new ApiError(data.error || '操作未完成，請稍後再試。', response.status, data.code);
   return data;
 }
 
@@ -228,7 +218,7 @@ function renderRecords() {
     const actionCell = document.createElement('td');
     const actions = element('div', 'record-actions');
     actions.append(row.has_photo ? recordButton('查看單據', 'photo', row, 'photo') : element('span', 'no-photo', '未附單據'));
-    actions.append(recordButton('編輯', 'edit', row), recordButton('刪除', 'delete', row, 'danger'));
+    actions.append(recordButton('刪除', 'delete', row, 'danger'));
     actionCell.append(actions);
     tr.append(dateCell, unitCell, courierCell, amountCell, distanceCell, actionCell);
     $('history-body').append(tr);
@@ -288,7 +278,7 @@ async function loadList({ initial = false } = {}) {
     $('total-count').textContent = format(data.total_count);
     $('total-amount').textContent = format(data.total_amount);
     $('total-distance').textContent = format(data.total_distance_km);
-    $('history-description').textContent = `${month.replace('-', ' 年 ')} 月 · 統計涵蓋全部 ${format(data.total_count)} 筆紀錄，日期時間皆為台灣時間。`;
+    $('history-description').textContent = `${month.replace('-', ' 年 ')} 月 · 統計涵蓋全部 ${format(data.total_count)} 筆紀錄，日期時間皆為台灣時間。已上傳的資料與單據不能再編輯。`;
     renderRecords();
     return true;
   } catch (error) {
@@ -302,22 +292,8 @@ async function loadList({ initial = false } = {}) {
   }
 }
 
-function confirmDiscard(message = '目前內容尚未儲存，確定放棄這次修改？') {
+function confirmDiscard(message = '目前內容尚未儲存，確定放棄這份草稿？') {
   return !state.dirty && !state.photoBusy || window.confirm(message);
-}
-
-function editRecord(row) {
-  if (busy() || !confirmDiscard()) return;
-  resetForm();
-  state.original = { ...row };
-  for (const [field, id] of Object.entries(fields)) $(id).value = field === 'delivered_at' ? taipeiDateTime(row[field]) : String(row[field]);
-  $('form-mode').textContent = '編輯外送';
-  $('form-title').textContent = '修改這筆外送';
-  state.signature = signature();
-  state.dirty = false;
-  setMessage(row.has_photo ? '修改後按「儲存修改」。未更換或移除照片時，會保留原單據。' : '修改後按「儲存修改」。也可以補上外送單據照片。', 'info');
-  syncControls();
-  $('form-title').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function saveRecord(event) {
@@ -337,11 +313,14 @@ async function saveRecord(event) {
     setMessage('請確認標示的欄位，再儲存這筆外送。', 'error');
     return;
   }
+  const photoNotice = state.photo
+    ? '單據照片將一併上傳，之後不能更換或移除。'
+    : '本次未附單據；送出後不能補傳照片。';
+  if (!window.confirm(`確認上傳「${validation.value.unit_name}」？\n\n上傳成功後，所有欄位與單據照片都不能再編輯。\n${photoNotice}\n請確認資料無誤後再上傳。`)) return;
   if (!state.pendingSave) {
     state.pendingSave = {
-      action: 'save', ...validation.value, id: state.original?.id || state.newId,
-      request_id: crypto.randomUUID(), expected_version: state.original?.version || 0,
-      remove_photo: state.photo ? false : state.removePhoto,
+      action: 'save', ...validation.value, id: state.newId,
+      request_id: crypto.randomUUID(), expected_version: 0, remove_photo: false,
     };
   }
   const payload = state.pendingSave;
@@ -357,16 +336,15 @@ async function saveRecord(event) {
       throw new ApiError('尚未收到完整的儲存確認，輸入與照片已保留。請保持內容不變並再按儲存確認。');
     }
     const hadPhoto = !!state.photo;
-    const wasEditing = !!state.original;
     const savedMonth = taipeiDateTime(data.record.delivered_at).slice(0, 7);
     resetForm({ courier: payload.courier });
     if (isValidMonth(savedMonth)) { state.month = savedMonth; $('history-month').value = savedMonth; }
     state.page = 0;
     const refreshed = await loadList();
-    if (state.session) setMessage(`${wasEditing ? '修改已儲存。' : '外送記錄已儲存。'}${hadPhoto ? '單據照片已一併上傳。' : ''}${refreshed ? '' : '\n清單暫時無法更新，請稍後按「重新讀取」查看。'}`, refreshed ? '' : 'info');
+    if (state.session) setMessage(`外送記錄已上傳並鎖定。${hadPhoto ? '單據照片已一併上傳。' : '本筆未附單據，之後不能補傳。'}${refreshed ? '' : '\n清單暫時無法更新，請稍後按「重新讀取」查看。'}`, refreshed ? '' : 'info');
   } catch (error) {
     if (!handleFailure(error)) {
-      if (error.status === 409) state.conflict = true;
+      if (error.status === 409 || error.status === 403 && error.code === 'record_locked') state.conflict = true;
       setMessage(error.message, 'error');
     }
   } finally { state.mutating = false; syncControls(); }
@@ -374,7 +352,6 @@ async function saveRecord(event) {
 
 async function deleteRecord(row) {
   if (busy()) return;
-  if (state.original?.id === row.id && !confirmDiscard('這筆正在編輯，刪除會放棄尚未儲存的修改，確定繼續？')) return;
   const date = taipeiDateTime(row.delivered_at).replace('T', ' ');
   if (!window.confirm(`刪除「${row.unit_name}」\n${date} · ${format(row.amount)} 元\n\n這筆外送紀錄與附上的單據都會移除，確定刪除？`)) return;
   state.mutating = true;
@@ -383,7 +360,6 @@ async function deleteRecord(row) {
   try {
     const data = await api('delete', { id: row.id, expected_version: row.version });
     if (data.ok !== true) throw new ApiError('尚無法確認刪除結果，請重新讀取清單確認。');
-    if (state.original?.id === row.id) resetForm();
     if (state.records.length === 1 && state.page > 0) state.page--;
     const refreshed = await loadList();
     if (state.session) setMessage(refreshed ? '外送紀錄已刪除。' : '刪除已完成，清單暫時無法更新，請稍後重新讀取。', refreshed ? '' : 'info');
@@ -396,7 +372,6 @@ async function pickPhoto(file) {
   if (!file || busy()) return;
   clearNewPhoto();
   const version = state.photoVersion;
-  state.removePhoto = false;
   state.photoBusy = true;
   state.pendingSave = null;
   state.dirty = true;
@@ -493,14 +468,8 @@ $('take-photo').addEventListener('click', () => $('camera-input').click());
 $('choose-photo').addEventListener('click', () => $('gallery-input').click());
 for (const id of ['camera-input', 'gallery-input']) $(id).addEventListener('change', () => { void pickPhoto($(id).files?.[0]); });
 $('clear-photo').addEventListener('click', () => { clearNewPhoto(); markChanged(); });
-$('remove-existing-photo').addEventListener('click', () => { state.removePhoto = !state.removePhoto; markChanged(); });
-$('view-existing-photo').addEventListener('click', () => { void viewPhoto(state.original); });
-$('new-record').addEventListener('click', () => {
-  if (busy() || !confirmDiscard()) return;
-  resetForm(); setMessage('');
-});
 $('reload-conflict').addEventListener('click', () => {
-  if (busy() || !confirmDiscard('捨棄畫面上尚未儲存的修改，重新讀取雲端紀錄？')) return;
+  if (busy() || !confirmDiscard('捨棄畫面上的草稿與待傳照片，重新讀取雲端紀錄？')) return;
   resetForm(); setMessage(''); void loadList();
 });
 $('history-month').addEventListener('change', () => {
@@ -518,14 +487,13 @@ $('history-body').addEventListener('click', event => {
   if (!button || busy()) return;
   const row = state.records.find(record => record.id === button.dataset.id);
   if (!row) return;
-  if (button.dataset.action === 'edit') editRecord(row);
   if (button.dataset.action === 'delete') void deleteRecord(row);
   if (button.dataset.action === 'photo') void viewPhoto(row);
 });
 $('close-photo').addEventListener('click', closeViewer);
 $('photo-dialog').addEventListener('cancel', event => { event.preventDefault(); closeViewer(); });
 $('retry-photo').addEventListener('click', () => {
-  const row = state.records.find(record => record.id === state.viewerId) || (state.original?.id === state.viewerId ? state.original : null);
+  const row = state.records.find(record => record.id === state.viewerId);
   if (row) void viewPhoto(row);
 });
 
