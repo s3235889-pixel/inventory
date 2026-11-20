@@ -472,6 +472,14 @@
       return 99;
     }
 
+    // 指定常用品項置頂，其餘品項沿用各畫面的原本排序。
+    const PINNED_ITEM_NAMES = ['蛋', '筍乾', '高湯', '洋蔥肉', '蔥'];
+
+    function getItemDisplayPriority(itemName) {
+      const index = PINNED_ITEM_NAMES.indexOf(String(itemName || '').trim());
+      return index === -1 ? PINNED_ITEM_NAMES.length : index;
+    }
+
     let currentDailyData = [];
     let currentMonthlyRawData = [];
     let currentManageData = [];
@@ -803,7 +811,10 @@
 
       displayStores.forEach(storeName => {
         let itemsList = storeDataMap[storeName] || [];
-        itemsList.sort((a, b) => a.priority - b.priority);
+        itemsList.sort((a, b) =>
+          getItemDisplayPriority(a.itemName) - getItemDisplayPriority(b.itemName) ||
+          a.priority - b.priority
+        );
 
         const storeCard = document.createElement('div');
         storeCard.className = 'print-card bg-white rounded border border-slate-300 overflow-hidden shadow-sm flex flex-col justify-between transition-all duration-300';
@@ -921,6 +932,8 @@
           const wA = getStoreWeight(a.orders.stores.store_name);
           const wB = getStoreWeight(b.orders.stores.store_name);
           if (wA !== wB) return wA - wB;
+          const itemPriority = getItemDisplayPriority(a.items.item_name) - getItemDisplayPriority(b.items.item_name);
+          if (itemPriority !== 0) return itemPriority;
           return b.order_item_id - a.order_item_id;
         });
 
@@ -1049,7 +1062,10 @@
       itemSelect.innerHTML = '';
 
       const availableItems = allItemsList.filter(i => i.store_id === null || String(i.store_id) === String(storeId));
-      availableItems.sort((a, b) => a.item_name.localeCompare(b.item_name, 'zh-Hant'));
+      availableItems.sort((a, b) =>
+        getItemDisplayPriority(a.item_name) - getItemDisplayPriority(b.item_name) ||
+        a.item_name.localeCompare(b.item_name, 'zh-Hant')
+      );
 
       availableItems.forEach(i => {
         itemSelect.innerHTML += `<option value="${i.item_id}">${i.item_name}${i.store_id === null ? ' (共通)' : ''}</option>`;
@@ -1291,6 +1307,8 @@
       if (searchKeyword) itemsList = itemsList.filter(i => i.itemName.toLowerCase().includes(searchKeyword));
 
       itemsList.sort((a, b) => {
+        const itemPriority = getItemDisplayPriority(a.itemName) - getItemDisplayPriority(b.itemName);
+        if (itemPriority !== 0) return itemPriority;
         if (a.priority !== b.priority) return a.priority - b.priority;
         return a.itemName.localeCompare(b.itemName, 'zh-Hant');
       });
