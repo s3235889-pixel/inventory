@@ -9,7 +9,10 @@ if (!secret || !url) throw new Error('Missing server configuration');
 const db = createClient(url, secret, { auth: { persistSession: false, autoRefreshToken: false } });
 const bucket = db.storage.from('delivery-photos');
 const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
-const distance = createDistanceService({ apiKey: () => Deno.env.get('GEOAPIFY_API_KEY') });
+const distance = createDistanceService({
+  apiKey: () => Deno.env.get('GEOAPIFY_API_KEY'),
+  onDiagnostic: event => console.warn('delivery_distance_diagnostic', JSON.stringify(event)),
+});
 
 Deno.serve(createHandler({
   key, distance,

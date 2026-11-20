@@ -43,6 +43,23 @@ type Options = {
   now?: () => number;
   timeoutMs?: number;
   cacheMaxEntries?: number;
+  onDiagnostic?: (event: DistanceDiagnostic) => void;
+};
+type DiagnosticPhase = 'input' | 'origin' | 'destination' | 'route' | 'pipeline';
+type DiagnosticReason = 'address_parse' | 'no_candidates' | 'candidate_validation' | 'ambiguous_candidates'
+  | 'http_error' | 'transport_error' | 'response_shape' | 'response_size' | 'response_body'
+  | 'deadline' | 'route_validation' | 'sensitive_provider_value';
+type DiagnosticContext = { store_id: number; phase: DiagnosticPhase };
+type DiagnosticCandidate = { checks: Record<string, boolean>; fields?: Record<string, unknown> };
+type RouteShape = {
+  results_array: boolean; results_count: number; route_object: boolean;
+  unit: 'meters' | 'miles' | 'missing' | 'other'; distance_type: 'number' | 'string' | 'missing' | 'other';
+  distance_finite: boolean; distance_in_range: boolean;
+  legs_array: boolean; legs_count: number; first_leg_object: boolean;
+};
+export type DistanceDiagnostic = DiagnosticContext & {
+  reason: DiagnosticReason; http_status?: number; candidate_count?: number;
+  public_address_store?: number; candidates?: DiagnosticCandidate[]; separation_m?: number; route_shape?: RouteShape;
 };
 type Location = { lat: number; lon: number; formatted: string };
 type AddressParts = { county: string; district: string; street: string; house: string };
@@ -107,6 +124,81 @@ function confidence(value: unknown): boolean {
 }
 function countryTW(value: unknown): boolean { return typeof value === 'string' && value.toLowerCase() === 'tw'; }
 function countriesTW(value: unknown): boolean { return Array.isArray(value) && value.length > 0 && value.every(countryTW); }
+function diagnosticString(value: unknown, key: string, max: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  // Inspect the complete string before truncating; never copy URLs or a key
+  // echoed inside provider fields into logs, even for public-address probes.
+  if ((key && value.includes(key)) || /https?:|:\/\/|apiKey\s*=|^\s*(?:www\.|\/)|[a-z0-9-]+\.[a-z]{2,}(?:[\/:?#]|$)/i.test(value)) return '[redacted]';
+  return value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, max);
+}
+function candidateSeparationMeters(values: unknown[]): number | undefined {
+  // Public-store diagnostics only: report candidate disagreement, never raw
+  // coordinates. This is not used as a route or as a substitute for confidence.
+  const points = values.slice(0, 5).filter((value): value is Record<string, number> => object(value)
+    && typeof value.lat === 'number' && Number.isFinite(value.lat) && value.lat >= 20 && value.lat <= 27
+    && typeof value.lon === 'number' && Number.isFinite(value.lon) && value.lon >= 116 && value.lon <= 124);
+  if (points.length < 2) return undefined;
+  const radians = Math.PI / 180;
+  let maximum = 0;
+  for (let i = 0; i < points.length; i++) for (let j = i + 1; j < points.length; j++) {
+    const a = points[i], b = points[j];
+    const arc = Math.sin((a.lat - b.lat) * radians / 2) ** 2
+      + Math.cos(a.lat * radians) * Math.cos(b.lat * radians) * Math.sin((a.lon - b.lon) * radians / 2) ** 2;
+    maximum = Math.max(maximum, 2 * 6371000 * Math.asin(Math.sqrt(Math.min(1, arc))));
+  }
+  return Math.round(maximum * 10) / 10;
+}
+function geocodeDiagnostic(data: unknown, address: string, key: string, context: DiagnosticContext): DistanceDiagnostic {
+  const requested = addressParts(address);
+  if (!requested) return { ...context, reason: 'address_parse' };
+  if (!object(data) || !Array.isArray(data.results)) return { ...context, reason: 'response_shape' };
+  // Exact equality is intentional: added floors, notes, alternate spellings or
+  // customer addresses must never enable detailed candidate logging.
+  const publicStore = Number(Object.entries(DELIVERY_ORIGINS).find(([, value]) => value === address)?.[0] || 0);
+  const candidates: DiagnosticCandidate[] = data.results.slice(0, 5).map(value => {
+    const result = object(value) ? value : {};
+    const rank = object(result.rank) ? result.rank : {};
+    const administration = ['state', 'county', 'city', 'district', 'suburb', 'town', 'municipality']
+      .map(field => canonicalComponent(result[field]));
+    const candidate: DiagnosticCandidate = { checks: {
+      object: object(value), rank: object(result.rank), country: countryTW(result.country_code),
+      type: ['building', 'amenity'].includes(String(result.result_type)),
+      house: houseNumber(result.housenumber) === requested.house,
+      street: canonicalComponent(result.street) === requested.street,
+      county: administration.includes(requested.county), district: administration.includes(requested.district),
+      confidence: confidence(rank.confidence), match_type: ['full_match', 'match_by_building'].includes(String(rank.match_type)),
+      component_confidence: ['confidence_city_level', 'confidence_street_level', 'confidence_building_level']
+        .every(field => rank[field] === undefined || confidence(rank[field])),
+      coordinates: typeof result.lat === 'number' && Number.isFinite(result.lat) && result.lat >= 20 && result.lat <= 27
+        && typeof result.lon === 'number' && Number.isFinite(result.lon) && result.lon >= 116 && result.lon <= 124,
+      formatted: typeof result.formatted === 'string' && !!result.formatted.trim() && result.formatted.length <= 600
+        && !/[\u0000-\u001f\u007f]/.test(result.formatted),
+    } };
+    if (publicStore) {
+      const admin: Record<string, string> = {};
+      for (const field of ['state', 'county', 'city', 'district', 'suburb', 'town', 'municipality']) {
+        const text = diagnosticString(result[field], key, 40);
+        if (text !== undefined) admin[field] = text;
+      }
+      const scores: Record<string, number | string> = {};
+      for (const field of ['confidence', 'confidence_city_level', 'confidence_street_level', 'confidence_building_level']) {
+        if (typeof rank[field] === 'number' && Number.isFinite(rank[field]) && rank[field] >= 0 && rank[field] <= 1) scores[field] = rank[field];
+      }
+      const match = diagnosticString(rank.match_type, key, 32);
+      if (match !== undefined) scores.match_type = match;
+      candidate.fields = {
+        country_code: diagnosticString(result.country_code, key, 8), result_type: diagnosticString(result.result_type, key, 24),
+        housenumber: diagnosticString(result.housenumber, key, 24), street: diagnosticString(result.street, key, 64), admin, rank: scores,
+      };
+    }
+    return candidate;
+  });
+  const accepted = candidates.filter(candidate => Object.values(candidate.checks).every(Boolean)).length;
+  const separation = publicStore ? candidateSeparationMeters(data.results) : undefined;
+  return { ...context, reason: !data.results.length ? 'no_candidates' : accepted > 1 ? 'ambiguous_candidates' : 'candidate_validation',
+    candidate_count: Math.min(data.results.length, 1000), ...(publicStore ? { public_address_store: publicStore } : {}),
+    ...(separation !== undefined ? { separation_m: separation } : {}), candidates };
+}
 function locationFromGeocode(data: unknown, address: string): Location {
   if (!object(data) || !Array.isArray(data.results)) throw unavailable();
   const requested = addressParts(address);
@@ -137,11 +229,36 @@ function locationFromGeocode(data: unknown, address: string): Location {
     ? '此地址找到多個可能門牌，請補上完整縣市與地址，或手動輸入公里數。' : undefined);
   return [...accepted.values()][0];
 }
+function routeUnit(value: unknown): RouteShape['unit'] {
+  if (value === undefined || value === null) return 'missing';
+  if (typeof value !== 'string' || value.length > 6) return 'other';
+  const unit = value.toLowerCase();
+  return unit === 'meters' || unit === 'miles' ? unit : 'other';
+}
+function routeShape(data: unknown): RouteShape {
+  // Only fixed enums, booleans and bounded counts leave this function. Never
+  // copy provider properties, geometry, instructions, or arbitrary unit text.
+  const results = object(data) && Array.isArray(data.results) ? data.results : null;
+  const first = results?.[0];
+  const route = object(first) ? first : {};
+  const legs = Array.isArray(route.legs) ? route.legs : null;
+  return {
+    results_array: results !== null, results_count: Math.min(results?.length || 0, 1000), route_object: object(first),
+    unit: routeUnit(route.distance_units),
+    distance_type: typeof route.distance === 'number' ? 'number' : typeof route.distance === 'string' ? 'string'
+      : route.distance === undefined || route.distance === null ? 'missing' : 'other',
+    distance_finite: typeof route.distance === 'number' && Number.isFinite(route.distance),
+    distance_in_range: typeof route.distance === 'number' && Number.isFinite(route.distance)
+      && route.distance >= 0 && route.distance <= 99999990,
+    legs_array: legs !== null, legs_count: Math.min(legs?.length || 0, 1000), first_leg_object: object(legs?.[0]),
+  };
+}
 function routeDistance(data: unknown, origin: Location, destination: Location): number {
   if (!object(data) || !Array.isArray(data.results)) throw unavailable();
   if (!data.results.length) throw noRoute();
   const route = data.results[0];
-  if (!object(route) || route.distance_units !== 'Meters'
+  // Letter case does not change the unit; all non-meter units still fail.
+  if (!object(route) || routeUnit(route.distance_units) !== 'meters'
     || typeof route.distance !== 'number' || !Number.isFinite(route.distance)
     || route.distance < 0 || route.distance > 99999990
     || !Array.isArray(route.legs) || route.legs.length !== 1 || !object(route.legs[0])) throw unavailable();
@@ -169,6 +286,10 @@ export function createDistanceService(options: Options = {}): DistanceService {
   const cacheKey = crypto.subtle.importKey('raw', crypto.getRandomValues(new Uint8Array(32)),
     { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   let previousKey = '', configurationVersion = 0;
+  function diagnostic(event: DistanceDiagnostic) {
+    // Logging must neither break routing nor expose an Error/Request object.
+    try { options.onDiagnostic?.(event); } catch { /* Keep the original result. */ }
+  }
   function configuredKey(): string {
     // Read the getter on every request, so adding/rotating a secret does not
     // permanently leave a warm instance advertising available:false.
@@ -205,13 +326,14 @@ export function createDistanceService(options: Options = {}): DistanceService {
     const bytes = new Uint8Array(await crypto.subtle.sign('HMAC', await cacheKey, encoder.encode(value)));
     return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
   }
-  async function requestJson(url: URL, signal: AbortSignal, kind: 'geocode' | 'route'): Promise<unknown> {
+  async function requestJson(url: URL, signal: AbortSignal, kind: 'geocode' | 'route', context: DiagnosticContext): Promise<unknown> {
     if (signal.aborted) throw unavailable();
     let response: Response;
     try { response = await fetcher(url, { method: 'GET', headers: { Accept: 'application/json' }, signal, redirect: 'error' }); }
-    catch { throw unavailable(); }
+    catch { if (!signal.aborted) diagnostic({ ...context, reason: 'transport_error' }); throw unavailable(); }
     if (signal.aborted) throw unavailable();
     if (!response.ok) {
+      diagnostic({ ...context, reason: 'http_error', http_status: response.status });
       if (response.status === 429) {
         const retry = Number(response.headers.get('retry-after'));
         throw limited(Number.isFinite(retry) && retry > 0 ? Math.min(Math.ceil(retry), 60) : 30);
@@ -219,7 +341,9 @@ export function createDistanceService(options: Options = {}): DistanceService {
       if ([400, 404, 422].includes(response.status)) throw kind === 'route' ? noRoute() : invalidAddress();
       throw unavailable();
     }
-    if (Number(response.headers.get('content-length')) > MAX_RESPONSE_BYTES || !response.body) throw unavailable();
+    if (Number(response.headers.get('content-length')) > MAX_RESPONSE_BYTES || !response.body) {
+      diagnostic({ ...context, reason: 'response_size' }); throw unavailable();
+    }
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let length = 0;
@@ -234,42 +358,57 @@ export function createDistanceService(options: Options = {}): DistanceService {
         if (length > MAX_RESPONSE_BYTES) { await reader.cancel(); throw unavailable(); }
         chunks.push(value);
       }
-    } catch { throw unavailable(); }
+    } catch { if (!signal.aborted) diagnostic({ ...context, reason: 'response_body' }); throw unavailable(); }
     finally { signal.removeEventListener('abort', cancel); reader.releaseLock(); }
     const bytes = new Uint8Array(length);
     let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
     try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
-    catch { throw unavailable(); }
+    catch { diagnostic({ ...context, reason: 'response_shape' }); throw unavailable(); }
   }
-  async function geocode(address: string, key: string, signal: AbortSignal): Promise<Location> {
+  async function geocode(address: string, key: string, signal: AbortSignal, context: DiagnosticContext): Promise<Location> {
+    const requested = addressParts(address);
+    if (!requested) { diagnostic({ ...context, reason: 'address_parse' }); throw invalidAddress(); }
     const url = new URL('https://api.geoapify.com/v1/geocode/search');
-    url.search = new URLSearchParams({ text: address, filter: 'countrycode:tw', lang: 'zh', limit: '5', format: 'json', apiKey: key }).toString();
-    const result = locationFromGeocode(await requestJson(url, signal, 'geocode'), address);
-    if (result.formatted.includes(key)) throw unavailable();
+    // Structured input avoids a second, free-form Chinese address parser. The
+    // provider has no county input; county is still strictly checked below.
+    // Do not send text together with these fields, or guess county as state.
+    url.search = new URLSearchParams({ housenumber: requested.house, street: requested.street,
+      city: requested.district, country: 'Taiwan', filter: 'countrycode:tw', lang: 'zh', limit: '5', format: 'json', apiKey: key }).toString();
+    const data = await requestJson(url, signal, 'geocode', context);
+    let result: Location;
+    try { result = locationFromGeocode(data, address); }
+    catch (error) { diagnostic(geocodeDiagnostic(data, address, key, context)); throw error; }
+    if (result.formatted.includes(key)) { diagnostic({ ...context, reason: 'sensitive_provider_value' }); throw unavailable(); }
     return result;
   }
   async function calculateFresh(store: number, address: string, key: string, version: number): Promise<CachedRoute> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const deadline = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => { controller.abort(); reject(unavailable('機車距離計算逾時，請稍後重試，或手動輸入公里數。')); }, timeoutMs);
+      timer = setTimeout(() => {
+        diagnostic({ store_id: store, phase: 'pipeline', reason: 'deadline' });
+        controller.abort(); reject(unavailable('機車距離計算逾時，請稍後重試，或手動輸入公里數。'));
+      }, timeoutMs);
     });
     const work = async (): Promise<CachedRoute> => {
       const cachedOrigin = origins.get(store);
       const getOrigin = cachedOrigin && cachedOrigin.expires > now() ? Promise.resolve(cachedOrigin.value)
-        : geocode(DELIVERY_ORIGINS[store], key, controller.signal).then(value => {
+        : geocode(DELIVERY_ORIGINS[store], key, controller.signal, { store_id: store, phase: 'origin' }).then(value => {
           if (version === configurationVersion && !controller.signal.aborted) origins.set(store, { value, expires: now() + ORIGIN_TTL_MS });
           return value;
         }).catch(error => {
           if (error instanceof DistanceError && error.status === 429) throw error;
           throw unavailable('門市起點暫時無法確認，請稍後重試，或手動輸入公里數。');
         });
-      const [origin, destination] = await Promise.all([getOrigin, geocode(address, key, controller.signal)]);
+      const [origin, destination] = await Promise.all([getOrigin, geocode(address, key, controller.signal, { store_id: store, phase: 'destination' })]);
       const url = new URL('https://api.geoapify.com/v1/routing');
       url.search = new URLSearchParams({ waypoints: `${origin.lat},${origin.lon}|${destination.lat},${destination.lon}`,
         mode: MODE, type: 'balanced', units: 'metric', format: 'json', details: 'admin_areas', avoid: 'ferries', apiKey: key }).toString();
-      const distance = routeDistance(await requestJson(url, controller.signal, 'route'), origin, destination);
+      const data = await requestJson(url, controller.signal, 'route', { store_id: store, phase: 'route' });
+      let distance: number;
+      try { distance = routeDistance(data, origin, destination); }
+      catch (error) { diagnostic({ store_id: store, phase: 'route', reason: 'route_validation', route_shape: routeShape(data) }); throw error; }
       return { distance_km: distance, matched_address: destination.formatted };
     };
     try { return await Promise.race([work(), deadline]); }
@@ -280,7 +419,9 @@ export function createDistanceService(options: Options = {}): DistanceService {
     const key = configuredKey();
     if (!Object.hasOwn(DELIVERY_ORIGINS, store) || !key) throw unavailable('自動機車距離尚未啟用，請先手動輸入公里數。');
     if (typeof address !== 'string' || !address.trim() || [...address.trim()].length > 300
-      || /[\u0000-\u001f\u007f]/.test(address) || !addressParts(address)) throw invalidAddress();
+      || /[\u0000-\u001f\u007f]/.test(address) || !addressParts(address)) {
+      diagnostic({ store_id: store, phase: 'input', reason: 'address_parse' }); throw invalidAddress();
+    }
     const submittedAddress = address.trim();
     takeRate(store, sessionKey);
     const version = configurationVersion;

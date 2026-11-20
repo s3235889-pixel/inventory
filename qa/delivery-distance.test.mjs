@@ -7,6 +7,11 @@ import { createDistanceService, DELIVERY_ORIGINS, DistanceError } from '../supab
 const KEY = 'distance-tests-only-not-a-real-key';
 const DESTINATION = '屏東縣潮州鎮測試路99號';
 const NOW = 1795190400000;
+function geocodeAddress(url) {
+  if (url.pathname !== '/v1/geocode/search') return '';
+  const params = url.searchParams;
+  return `屏東縣${params.get('city')}${params.get('street')}${params.get('housenumber')}號`;
+}
 function location(address) {
   const store = Number(Object.entries(DELIVERY_ORIGINS).find(([, value]) => value === address)?.[0] || 0);
   return {
@@ -24,6 +29,7 @@ function route() {
 }
 function fixture(options = {}) {
   const calls = [];
+  const diagnostics = [];
   let time = NOW;
   const fetcher = async (input, init) => {
     const url = new URL(input);
@@ -33,16 +39,18 @@ function fixture(options = {}) {
       if (response) return response;
     }
     if (url.pathname === '/v1/geocode/search') {
-      const address = url.searchParams.get('text');
-      const result = location(address);
+      const address = geocodeAddress(url);
+      const result = { ...location(address), street: url.searchParams.get('street'),
+        city: url.searchParams.get('city'), housenumber: url.searchParams.get('housenumber') };
       return Response.json({ results: options.geocode ? options.geocode(result, address) : [result] });
     }
     assert.equal(url.pathname, '/v1/routing');
     return Response.json({ results: options.route ? options.route(route()) : [route()] });
   };
   const service = createDistanceService({ apiKey: options.apiKey ?? KEY, fetcher, now: () => time,
-    timeoutMs: options.timeoutMs, cacheMaxEntries: options.cacheMaxEntries });
-  return { service, calls, advance: ms => { time += ms; },
+    timeoutMs: options.timeoutMs, cacheMaxEntries: options.cacheMaxEntries,
+    onDiagnostic: event => { diagnostics.push(event); options.onDiagnostic?.(event); } });
+  return { service, calls, diagnostics, advance: ms => { time += ms; },
     calculate: (address = DESTINATION, store = 1, session = 'session-hash-test-only') => service.calculate(store, address, session) };
 }
 async function rejectsCode(promise, code, status) {
@@ -86,7 +94,14 @@ for (const store of [1, 2]) {
     assert.equal(calls.length, 3);
     assert.ok(calls.every(call => call.url.origin === 'https://api.geoapify.com' && call.init.redirect === 'error'));
     const geocodes = calls.filter(call => call.url.pathname === '/v1/geocode/search');
-    assert.deepEqual(new Set(geocodes.map(call => call.url.searchParams.get('text'))), new Set([DELIVERY_ORIGINS[store], DESTINATION]));
+    assert.deepEqual(new Set(geocodes.map(call => geocodeAddress(call.url))), new Set([DELIVERY_ORIGINS[store], DESTINATION]));
+    for (const { url } of geocodes) {
+      assert.deepEqual([...url.searchParams.keys()].sort(), ['apiKey', 'city', 'country', 'filter', 'format', 'housenumber', 'lang', 'limit', 'street']);
+      assert.equal(url.searchParams.get('country'), 'Taiwan');
+      assert.equal(url.searchParams.get('city'), '潮州鎮');
+      assert.equal(url.searchParams.get('text'), null);
+      assert.equal(url.searchParams.get('state'), null);
+    }
     assert.ok(geocodes.every(call => call.url.searchParams.get('filter') === 'countrycode:tw' && call.url.searchParams.get('lang') === 'zh'));
     const routing = calls.find(call => call.url.pathname === '/v1/routing').url.searchParams;
     assert.equal(routing.get('mode'), 'scooter');
@@ -140,16 +155,20 @@ test('未支援巷號或道路與門牌間夾雜文字不能被忽略', async ()
 });
 test('合法數字巷弄緊接門牌可查詢，門牌後樓層不改變起終點', async () => {
   const address = '屏東縣潮州鎮測試路10巷2弄42之1號3樓';
-  const { calculate } = fixture({ geocode: (value, text) => [text === address
-    ? { ...value, street: '測試路10巷2弄', housenumber: '42-1' } : value] });
+  const { calculate, calls } = fixture();
   const result = await calculate(address);
   assert.equal(result.address, address);
   assert.equal(result.distance_km, 3.25);
+  const destination = calls.find(call => call.url.searchParams.get('street') === '測試路10巷2弄').url.searchParams;
+  assert.equal(destination.get('housenumber'), '42-1');
+  assert.equal(destination.get('city'), '潮州鎮');
+  assert.equal(destination.get('text'), null);
+  assert.equal(destination.toString().includes(encodeURIComponent('3樓')), false);
 });
 test('門市起點匹配失敗回503且不錯用另一家門市', async () => {
   const { calculate, calls } = fixture({ geocode: (value, address) => address === DELIVERY_ORIGINS[1] ? [] : [value] });
   await rejectsCode(calculate(), 'distance_unavailable', 503);
-  assert.equal(calls.some(call => call.url.searchParams.get('text') === DELIVERY_ORIGINS[2]), false);
+  assert.equal(calls.some(call => geocodeAddress(call.url) === DELIVERY_ORIGINS[2]), false);
 });
 for (const [label, mutate, code, status] of [
   ['沒有路線', () => [], 'distance_no_route', 422],
@@ -169,6 +188,40 @@ for (const [label, mutate, code, status] of [
     await rejectsCode(fixture({ route: mutate }).calculate(), code, status);
   });
 }
+test('公尺單位的大小寫差異都換算為相同公里數', async () => {
+  for (const unit of ['Meters', 'meters', 'METERS', 'mEtErS']) {
+    const { calculate, diagnostics } = fixture({ route: value => [{ ...value, distance_units: unit }] });
+    assert.equal((await calculate()).distance_km, 3.25);
+    assert.deepEqual(diagnostics, []);
+  }
+});
+test('英里、其他與缺失單位仍拒絕，診斷僅記白名單enum', async () => {
+  for (const unit of ['Miles', 'miles', 'km', 'Kilometers', 'meter', 'm', undefined, null, 42, `meters ${KEY}`]) {
+    const { calculate, diagnostics } = fixture({ route: value => [{ ...value, distance_units: unit }] });
+    await rejectsCode(calculate(), 'distance_unavailable', 503);
+    const shape = diagnostics.find(event => event.phase === 'route').route_shape;
+    assert.equal(shape.unit, typeof unit === 'string' && unit.toLowerCase() === 'miles' ? 'miles'
+      : unit === undefined || unit === null ? 'missing' : 'other');
+    assert.equal(JSON.stringify(diagnostics).includes(KEY), false);
+  }
+});
+test('路線schema診斷只保留型別、布林與有上限計數，不複製provider資料', async () => {
+  const malformed = { results: [{ distance: KEY, distance_units: `https://example.invalid/${KEY}`,
+    legs: Array(1001).fill(null), geometry: { coordinates: [[120.55, 22.56]] },
+    properties: { address: DESTINATION, apiKey: KEY }, instructions: DESTINATION }] };
+  const { calculate, diagnostics } = fixture({ response: url => url.pathname === '/v1/routing' ? Response.json(malformed) : null });
+  await rejectsCode(calculate(), 'distance_unavailable', 503);
+  assert.deepEqual(diagnostics, [{ store_id: 1, phase: 'route', reason: 'route_validation', route_shape: {
+    results_array: true, results_count: 1, route_object: true, unit: 'other', distance_type: 'string',
+    distance_finite: false, distance_in_range: false, legs_array: true, legs_count: 1000, first_leg_object: false,
+  } }]);
+  for (const value of [KEY, DESTINATION, 'https://', '120.55', '22.56', 'coordinates', 'instructions']) assert.equal(JSON.stringify(diagnostics).includes(value), false);
+  const absent = fixture({ response: url => url.pathname === '/v1/routing' ? Response.json({ features: [{ properties: malformed.results[0] }] }) : null });
+  await rejectsCode(absent.calculate(), 'distance_unavailable', 503);
+  assert.equal(absent.diagnostics[0].route_shape.results_array, false);
+  assert.equal(absent.diagnostics[0].route_shape.results_count, 0);
+  assert.equal(absent.diagnostics[0].route_shape.route_object, false);
+});
 test('provider權限/內部/格式錯誤都不洩漏key或原始錯誤，也不回登入403', async () => {
   for (const status of [401, 403, 500]) {
     const { calculate } = fixture({ response: url => url.pathname === '/v1/routing'
@@ -240,4 +293,90 @@ test('相同路線並行合併，異路線同店最多兩個並行', async () =>
   assert.equal((await first).distance_km, 3.25);
   assert.equal((await same).distance_km, 3.25);
   assert.equal((await second).distance_km, 3.25);
+});
+
+test('診斷分辨輸入解析、無候選、候選驗證，客戶資料不出現在事件', async () => {
+  const invalid = fixture();
+  await rejectsCode(invalid.calculate('私密客戶25號'), 'distance_address_invalid', 422);
+  assert.deepEqual(invalid.diagnostics, [{ store_id: 1, phase: 'input', reason: 'address_parse' }]);
+  for (const empty of [true, false]) {
+    const { calculate, diagnostics } = fixture({ geocode: (value, address) => address === DESTINATION
+      ? empty ? [] : [{ ...value, rank: { ...value.rank, confidence: 0.5 } }] : [value] });
+    await rejectsCode(calculate(DESTINATION, 1, 'private-session-token'), 'distance_address_invalid', 422);
+    const event = diagnostics.find(value => value.phase === 'destination');
+    assert.equal(event.reason, empty ? 'no_candidates' : 'candidate_validation');
+    assert.equal(event.candidate_count, empty ? 0 : 1);
+    assert.equal(event.public_address_store, undefined);
+    for (const candidate of event.candidates) {
+      assert.equal(candidate.fields, undefined);
+      assert.ok(Object.values(candidate.checks).every(value => typeof value === 'boolean'));
+    }
+    const logged = JSON.stringify(diagnostics);
+    for (const secret of [DESTINATION, '測試路', 'private-session-token', KEY, 'api.geoapify.com']) assert.equal(logged.includes(secret), false);
+  }
+});
+test('診斷只有完全相同的公開門市地址可記必要候選欄位', async () => {
+  const address = DELIVERY_ORIGINS[2];
+  const { calculate, diagnostics } = fixture({ geocode: (value, text) => [text === address
+    ? { ...value, rank: { ...value.rank, confidence: 0.5 } } : value] });
+  await rejectsCode(calculate(address), 'distance_address_invalid', 422);
+  const event = diagnostics.find(value => value.phase === 'destination');
+  assert.equal(event.public_address_store, 2);
+  assert.equal(event.candidates[0].fields.housenumber, '25');
+  assert.equal(event.candidates[0].fields.street, '東華路');
+  assert.equal(event.candidates[0].fields.admin.county, '屏東縣');
+  assert.equal(event.candidates[0].fields.rank.confidence, 0.5);
+  assert.equal(event.candidates[0].checks.confidence, false);
+  assert.equal(JSON.stringify(event).includes(address), false, 'raw full address is never copied');
+  assert.deepEqual(Object.keys(event.candidates[0].fields).sort(), ['admin', 'country_code', 'housenumber', 'rank', 'result_type', 'street']);
+  const privateVariant = fixture({ geocode: (value, text) => text === address ? [] : [value] });
+  await rejectsCode(privateVariant.calculate(`${address}3樓`), 'distance_address_invalid', 422);
+  assert.equal(privateVariant.diagnostics.find(value => value.phase === 'destination').public_address_store, undefined);
+});
+test('公開地址診斷仍移除key及URL，限制字串與候選數，不複製provider原始物件', async () => {
+  const address = DELIVERY_ORIGINS[2];
+  const { calculate, diagnostics } = fixture({ geocode: (value, text) => text === address
+    ? Array.from({ length: 10 }, () => ({ ...value, housenumber: KEY, street: `private ${KEY}`,
+      county: 'https://example.invalid/private', city: 'api.geoapify.com/private', district: '字'.repeat(1000),
+      formatted: 'private-full-address', extra_secret: KEY, rank: { confidence: 0.5, match_type: `private ${KEY}` } })) : [value] });
+  await rejectsCode(calculate(address), 'distance_address_invalid', 422);
+  const event = diagnostics.find(value => value.phase === 'destination');
+  assert.equal(event.candidate_count, 10);
+  assert.equal(event.candidates.length, 5);
+  assert.equal(event.candidates[0].fields.admin.district.length, 40);
+  const logged = JSON.stringify(event);
+  for (const secret of [KEY, 'https://', 'example.invalid', 'api.geoapify.com', 'private-full-address', 'extra_secret', 'lat', 'lon']) {
+    assert.equal(logged.includes(secret), false);
+  }
+  assert.ok(new TextEncoder().encode(logged).length < 8192);
+});
+test('HTTP診斷僅記狀態與stage，不記body/URL；診斷sink失敗不改變原錯誤', async () => {
+  const { calculate, diagnostics } = fixture({ response: url => geocodeAddress(url) === DESTINATION
+    ? new Response(`raw error ${KEY} ${DESTINATION}`, { status: 400 }) : null,
+    onDiagnostic: () => { throw new Error('sink unavailable'); } });
+  await rejectsCode(calculate(), 'distance_address_invalid', 422);
+  assert.deepEqual(diagnostics, [{ store_id: 1, phase: 'destination', reason: 'http_error', http_status: 400 }]);
+});
+
+test('structured全欄吻合但信心零仍拒絕，不追加fallback；公開候選僅記間距數值', async () => {
+  const address = DELIVERY_ORIGINS[2];
+  const { calculate, calls, diagnostics } = fixture({ geocode: (value, text) => text === address
+    ? [value, { ...value, lon: value.lon + 0.001 }].map(candidate => ({ ...candidate, rank: {
+      match_type: 'full_match', confidence: 0, confidence_city_level: 0, confidence_street_level: 0, confidence_building_level: 0,
+    } })) : [value] });
+  await rejectsCode(calculate(address), 'distance_address_invalid', 422);
+  assert.equal(calls.length, 2, 'only one request per address, with no free-form fallback or route');
+  assert.ok(calls.every(call => call.url.pathname === '/v1/geocode/search' && !call.url.searchParams.has('text')));
+  const event = diagnostics.find(value => value.phase === 'destination');
+  assert.equal(event.reason, 'candidate_validation');
+  assert.equal(event.public_address_store, 2);
+  assert.ok(event.separation_m > 100 && event.separation_m < 105);
+  assert.equal(event.separation_m, Math.round(event.separation_m * 10) / 10);
+  for (const candidate of event.candidates) {
+    for (const field of ['country', 'type', 'house', 'street', 'county', 'district', 'match_type', 'coordinates']) assert.equal(candidate.checks[field], true);
+    assert.equal(candidate.checks.confidence, false);
+    assert.equal(candidate.checks.component_confidence, false);
+  }
+  const logged = JSON.stringify(event);
+  for (const privateValue of ['"lat"', '"lon"', '22.56', '120.55', KEY, 'api.geoapify.com']) assert.equal(logged.includes(privateValue), false);
 });
