@@ -18,6 +18,7 @@ const source = fs.readFileSync(path.join(root, 'delivery.js'), 'utf8').replace(
   'const {$1} = window.__deliveryCore;\n'
 );
 const corePromise = import(pathToFileURL(path.join(root, 'delivery-core.mjs')).href);
+const origins = { 1: '屏東縣潮州鎮文化路42號', 2: '屏東縣潮州鎮東華路25號' };
 const clone = value => JSON.parse(JSON.stringify(value));
 const response = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => clone(body) });
 async function waitFor(predicate, message = 'UI did not settle') {
@@ -38,6 +39,10 @@ async function harness(options = {}) {
   virtualConsole.on('jsdomError', error => errors.push(error.message));
   const dom = new JSDOM(html, { url: 'https://s3235889-pixel.github.io/inventory/delivery.html', runScripts: 'outside-only', virtualConsole });
   const w = dom.window;
+  if (options.distanceTimeoutMs) {
+    const setWindowTimeout = w.setTimeout.bind(w);
+    w.setTimeout = (callback, delay, ...args) => setWindowTimeout(callback, delay === 20000 ? options.distanceTimeoutMs : delay, ...args);
+  }
   w.__deliveryCore = core;
   w.HTMLElement.prototype.scrollIntoView = function () {};
   const confirmations = [];
@@ -50,9 +55,11 @@ async function harness(options = {}) {
   const h = {
     dom, w, core, month, session, errors, confirmations, requests: [], records: options.records || [],
     handler: options.handler || null, decode: () => Promise.resolve(),
+    distanceService: options.distanceService || { available: options.distanceAvailable === true, origin_address: origins[session?.store_id], mode: 'scooter', provider: 'geoapify' },
     $: id => w.document.getElementById(id),
     set(id, value) { const el = this.$(id); el.value = String(value); el.dispatchEvent(new w.Event('input', { bubbles: true })); },
     click(id) { this.$(id).click(); },
+    blur(id) { this.$(id).dispatchEvent(new w.Event('blur')); },
     submit() { this.$('delivery-form').dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true })); },
     fill() {
       this.set('unit-name', ' 潮州國小 '); this.set('address', '屏東縣潮州鎮中山路1號'); this.set('courier', '小陳');
@@ -72,8 +79,10 @@ async function harness(options = {}) {
         return response(200, { store_id: session.store_id, store_name: session.store_name, month: body.month, page: body.page, page_size: 50,
           records: records.slice(body.page * 50, body.page * 50 + 50), total_count: records.length,
           total_amount: records.reduce((sum, row) => sum + row.amount, 0), total_distance_km: records.reduce((sum, row) => sum + row.distance_km, 0),
-          has_more: records.length > (body.page + 1) * 50 });
+          has_more: records.length > (body.page + 1) * 50, distance_service: this.distanceService });
       }
+      if (body.action === 'distance') return response(200, { distance_km: 3.27, address: body.address, matched_address: body.address,
+        origin_address: this.distanceService.origin_address, mode: 'scooter', provider: 'geoapify', estimated: true });
       if (body.action === 'save') {
         const old = this.records.find(row => row.id === body.id);
         if (old?.request_id === body.request_id) return response(200, { record: old });
@@ -96,7 +105,7 @@ async function harness(options = {}) {
     const body = multipart ? JSON.parse(init.body.get('payload')) : JSON.parse(init.body);
     const photo = multipart ? init.body.get('photo') : null;
     h.requests.push({ ...clone(body), hasUpload: !!photo, uploadType: photo?.type });
-    return h.handler ? h.handler(body, h, photo) : h.defaultResponse(body, photo);
+    return h.handler ? h.handler(body, h, photo, init.signal) : h.defaultResponse(body, photo);
   };
   new vm.Script(source, { filename: 'delivery.js' }).runInContext(dom.getInternalVMContext());
   return h;
@@ -363,4 +372,195 @@ test('a read failure is distinguished from an empty month and keeps the draft', 
     await h.ready(); h.fill(); h.handler = () => response(500, { error: '暫時無法讀取' }); h.click('refresh'); await h.idle();
     assert.equal(h.$('unit-name').value, ' 潮州國小 '); assert.match(h.$('list-state').textContent, /無法確認/); assert.equal(h.$('total-count').textContent, '—');
   } finally { h.close(); }
+});
+
+test('unavailable automatic distance shows the manual fallback and never requests a route', async () => {
+  const h = await harness();
+  try {
+    await h.ready(); h.fill();
+    assert.match(h.$('distance-origin').textContent, /屏東縣潮州鎮文化路42號/);
+    assert.match(h.$('distance-feedback').textContent, /自動計算尚未啟用，可先手動填寫公里數/);
+    assert.equal(h.$('recalculate-distance').disabled, true);
+    h.set('address', '屏東縣潮州鎮中山路22號');
+    assert.equal(h.$('distance-km').value, '', 'A new address clears the old manual distance');
+    h.blur('address'); h.click('recalculate-distance'); h.click('manual-distance');
+    assert.equal(h.requests.filter(r => r.action === 'distance').length, 0);
+    h.set('distance-km', '2.80'); h.submit(); await h.idle();
+    assert.equal(h.requests.find(r => r.action === 'save').distance_km, 2.8);
+    assert.equal(h.$('distance-attribution').hidden, true);
+  } finally { h.close(); }
+});
+
+test('both stores use their confirmed origin and blur calculates a scooter route immediately', async () => {
+  for (const store_id of [1, 2]) {
+    const h = await harness({ distanceAvailable: true, session: { store_id, store_name: store_id === 1 ? '潮州店(C1)' : '木崎(C2)', token: 'test-token' } });
+    try {
+      await h.ready(); h.set('address', ' 屏東縣潮州鎮中山路1號 '); h.blur('address');
+      await waitFor(() => h.$('distance-km').value === '3.27');
+      assert.equal(h.requests.filter(r => r.action === 'distance').length, 1);
+      assert.equal(h.requests.find(r => r.action === 'distance').address, '屏東縣潮州鎮中山路1號');
+      assert.equal(h.$('distance-origin').textContent, `出發門市：${origins[store_id]}`);
+      assert.equal(h.$('distance-attribution').hidden, false);
+      assert.match(h.$('distance-attribution').textContent, /Geoapify/); assert.match(h.$('distance-attribution').textContent, /OpenStreetMap/);
+      assert.match(h.$('distance-estimate-note').textContent, /並非實際 GPS 里程/);
+      assert.match(h.$('history-distance-source').textContent, /距離也可能是手動填寫/);
+    } finally { h.close(); }
+  }
+});
+
+test('address input debounces for about one second and later blur does not repeat a completed route', async () => {
+  const h = await harness({ distanceAvailable: true });
+  try {
+    await h.ready(); const start = Date.now(); h.set('address', '屏東縣潮州鎮中山路1號');
+    assert.equal(h.requests.filter(r => r.action === 'distance').length, 0); assert.equal(h.$('save').disabled, true);
+    await waitFor(() => h.$('distance-km').value === '3.27');
+    assert.ok(Date.now() - start >= 900);
+    h.blur('address'); h.blur('address');
+    assert.equal(h.requests.filter(r => r.action === 'distance').length, 1);
+    assert.match(h.$('distance-feedback').textContent, /預估 3.27 公里/);
+  } finally { h.close(); }
+});
+
+test('a stale route cannot fill a changed address or overwrite a manual distance', async () => {
+  const pending = [];
+  const h = await harness({ distanceAvailable: true, handler: (body, h, photo) => {
+    if (body.action !== 'distance') return h.defaultResponse(body, photo);
+    const deferredRoute = deferred(); pending.push({ body, route: deferredRoute }); return deferredRoute.promise;
+  } });
+  try {
+    await h.ready(); h.set('address', '屏東縣潮州鎮中山路1號'); h.blur('address');
+    h.set('address', '屏東縣潮州鎮中山路2號'); h.blur('address');
+    assert.equal(pending.length, 2); assert.equal(h.$('distance-km').value, '');
+    pending[0].route.resolve(h.defaultResponse(pending[0].body));
+    await new Promise(resolve => setTimeout(resolve, 15));
+    assert.equal(h.$('distance-km').value, ''); assert.equal(h.$('save').disabled, true);
+    h.set('distance-km', '4.20'); pending[1].route.resolve(h.defaultResponse(pending[1].body));
+    await new Promise(resolve => setTimeout(resolve, 15));
+    assert.equal(h.$('distance-km').value, '4.20'); assert.equal(h.$('distance-attribution').hidden, true);
+    assert.match(h.$('distance-feedback').textContent, /目前使用手動公里數/);
+    h.set('address', '屏東縣潮州鎮中山路3號');
+    assert.equal(h.$('distance-km').value, ''); assert.equal(h.$('save').disabled, true);
+  } finally { h.close(); }
+});
+
+test('changing an address clears a successful automatic result before another calculation', async () => {
+  const h = await harness({ distanceAvailable: true });
+  try {
+    await h.ready(); h.set('address', '屏東縣潮州鎮中山路1號'); h.blur('address');
+    await waitFor(() => h.$('distance-km').value === '3.27');
+    h.set('address', '屏東縣潮州鎮中山路2號');
+    assert.equal(h.$('distance-km').value, ''); assert.equal(h.$('distance-attribution').hidden, true);
+    assert.equal(h.$('save').disabled, true);
+    h.click('manual-distance'); assert.equal(h.$('distance-km').getAttribute('aria-busy'), 'false');
+    h.set('distance-km', '5.20'); h.blur('address');
+    assert.equal(h.requests.filter(r => r.action === 'distance').length, 1); assert.equal(h.$('distance-km').value, '5.20');
+  } finally { h.close(); }
+});
+
+test('route errors preserve the draft and login, leave distance blank, and allow manual entry', async () => {
+  for (const [status, code] of [[422, 'distance_address_invalid'], [422, 'distance_no_route'], [429, 'distance_rate_limited'], [503, 'distance_unavailable'], [403, 'distance_unavailable']]) {
+    const h = await harness({ distanceAvailable: true, handler: (body, h, photo) => body.action === 'distance'
+      ? response(status, { code, error: '暫時無法取得機車路線' }) : h.defaultResponse(body, photo) });
+    try {
+      await h.ready(); h.fill(); h.set('address', '屏東縣潮州鎮查無路1號'); h.blur('address');
+      await waitFor(() => h.$('distance-feedback').classList.contains('error'));
+      assert.equal(h.$('distance-km').value, ''); assert.equal(h.$('unit-name').value, ' 潮州國小 ');
+      assert.equal(h.$('workspace').hidden, false); assert.equal(JSON.parse(h.w.sessionStorage.getItem('receipt-session')).token, h.session.token);
+      h.blur('address'); assert.equal(h.requests.filter(r => r.action === 'distance').length, 1);
+      h.set('distance-km', '2.15'); h.submit(); await h.idle();
+      assert.equal(h.requests.find(r => r.action === 'save').distance_km, 2.15);
+    } finally { h.close(); }
+  }
+});
+
+test('distance timeout unlocks manual entry without silently supplying zero', async () => {
+  const h = await harness({ distanceAvailable: true, distanceTimeoutMs: 20, handler: (body, h, photo, signal) => body.action === 'distance'
+    ? new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new h.w.DOMException('Aborted', 'AbortError')), { once: true }))
+    : h.defaultResponse(body, photo) });
+  try {
+    await h.ready(); h.fill(); h.set('address', '屏東縣潮州鎮中山路9號'); h.blur('address');
+    await waitFor(() => /距離計算逾時/.test(h.$('distance-feedback').textContent));
+    assert.equal(h.$('distance-km').value, ''); assert.equal(h.$('save').disabled, false);
+    assert.equal(h.$('manual-distance').disabled, false); assert.equal(h.$('unit-name').value, ' 潮州國小 ');
+    h.submit(); assert.equal(h.requests.filter(r => r.action === 'save').length, 0);
+    assert.equal(h.$('distance-km').getAttribute('aria-invalid'), 'true');
+  } finally { h.close(); }
+});
+
+test('mismatched route addresses, origins and modes are never accepted as the current distance', async () => {
+  for (const override of [{ address: '不同目的地' }, { origin_address: origins[2] }, { mode: 'drive' }]) {
+    const h = await harness({ distanceAvailable: true, handler: async (body, h, photo) => {
+      const result = h.defaultResponse(body, photo);
+      return body.action === 'distance' ? response(200, { ...await result.json(), ...override }) : result;
+    } });
+    try {
+      await h.ready(); h.set('address', '屏東縣潮州鎮中山路1號'); h.blur('address');
+      await waitFor(() => h.$('distance-feedback').classList.contains('error'));
+      assert.equal(h.$('distance-km').value, ''); assert.equal(h.$('distance-attribution').hidden, true);
+      assert.match(h.$('distance-feedback').textContent, /距離回應不完整/);
+    } finally { h.close(); }
+  }
+});
+
+test('an unknown save result retains its distance and request IDs despite late routes or retry interactions', async () => {
+  const route = deferred(); let routeBody; let saveCalls = 0;
+  const h = await harness({ distanceAvailable: true, handler: (body, h, photo) => {
+    if (body.action === 'distance') { routeBody = body; return route.promise; }
+    if (body.action === 'save' && ++saveCalls === 1) return Promise.reject(new Error('offline'));
+    return h.defaultResponse(body, photo);
+  } });
+  try {
+    await h.ready(); h.fill(); h.set('address', '屏東縣潮州鎮中山路8號'); h.blur('address');
+    h.submit(); assert.equal(h.requests.filter(r => r.action === 'save').length, 0);
+    h.click('manual-distance'); h.set('distance-km', '4.20'); h.submit(); await h.idle();
+    route.resolve(h.defaultResponse(routeBody)); await new Promise(resolve => setTimeout(resolve, 15));
+    assert.equal(h.$('distance-km').value, '4.20'); assert.match(h.$('message').textContent, /尚無法確認/);
+    assert.equal(h.$('recalculate-distance').disabled, true); assert.equal(h.$('manual-distance').disabled, true);
+    h.blur('address'); h.click('recalculate-distance'); h.click('refresh'); await h.idle();
+    assert.equal(h.requests.filter(r => r.action === 'distance').length, 1);
+    h.submit(); await h.idle();
+    const saves = h.requests.filter(r => r.action === 'save');
+    assert.equal(saves.length, 2); assert.equal(saves[0].id, saves[1].id); assert.equal(saves[0].request_id, saves[1].request_id);
+    assert.equal(saves[0].distance_km, 4.2); assert.equal(saves[1].distance_km, 4.2);
+  } finally { h.close(); }
+});
+
+test('a late distance response cannot fill the blank form after a successful upload', async () => {
+  const route = deferred(); let routeBody;
+  const h = await harness({ distanceAvailable: true, handler: (body, h, photo) => {
+    if (body.action === 'distance') { routeBody = body; return route.promise; }
+    return h.defaultResponse(body, photo);
+  } });
+  try {
+    await h.ready(); h.fill(); h.set('address', '屏東縣潮州鎮中山路8號'); h.blur('address');
+    h.click('manual-distance'); h.set('distance-km', '4.20'); h.submit(); await h.idle();
+    route.resolve(h.defaultResponse(routeBody)); await new Promise(resolve => setTimeout(resolve, 15));
+    assert.equal(h.$('unit-name').value, ''); assert.equal(h.$('address').value, ''); assert.equal(h.$('distance-km').value, '');
+    assert.equal(h.$('distance-attribution').hidden, true); assert.equal(h.records[0].distance_km, 4.2);
+    assert.equal(h.$('history-body').querySelector('[data-action="edit"], [data-action="delete"]'), null);
+  } finally { h.close(); }
+});
+
+test('session changes invalidate in-flight routes and genuine distance authorization errors still require login', async () => {
+  const route = deferred(); let routeBody;
+  const h = await harness({ distanceAvailable: true, handler: (body, h, photo) => {
+    if (body.action === 'distance') { routeBody = body; return route.promise; }
+    return h.defaultResponse(body, photo);
+  } });
+  try {
+    await h.ready(); h.set('address', '屏東縣潮州鎮中山路1號'); h.blur('address');
+    h.w.sessionStorage.setItem('receipt-session', JSON.stringify({ store_id: 2, token: 'new-store-token' }));
+    h.w.dispatchEvent(new h.w.Event('focus')); route.resolve(h.defaultResponse(routeBody));
+    await new Promise(resolve => setTimeout(resolve, 15));
+    assert.equal(h.$('workspace').hidden, true); assert.equal(h.$('distance-km').value, '');
+    assert.equal(JSON.parse(h.w.sessionStorage.getItem('receipt-session')).token, 'new-store-token');
+  } finally { h.close(); }
+  const denied = await harness({ distanceAvailable: true, handler: (body, h, photo) => body.action === 'distance'
+    ? response(403, { error: '門市驗證失敗' }) : h.defaultResponse(body, photo) });
+  try {
+    await denied.ready(); denied.set('address', '屏東縣潮州鎮中山路1號'); denied.blur('address');
+    await waitFor(() => denied.$('workspace').hidden);
+    assert.equal(denied.w.sessionStorage.getItem('receipt-session'), null); assert.equal(denied.$('distance-km').value, '');
+    assert.match(denied.$('access-message').textContent, /門市驗證失敗/);
+  } finally { denied.close(); }
 });

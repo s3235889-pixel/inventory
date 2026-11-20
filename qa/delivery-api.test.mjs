@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHandler } from '../supabase/functions/delivery-api/handler.ts';
+import { DELIVERY_ORIGINS, DistanceError } from '../supabase/functions/delivery-api/distance.ts';
 
 const encoder = new TextEncoder();
 const key = await crypto.subtle.importKey('raw', encoder.encode('delivery-tests-only'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
@@ -52,6 +53,96 @@ function fixture(overrides = {}) {
   }
   return { handler, request, calls };
 }
+function distanceFixture(calculate) {
+  const distanceCalls = [];
+  const distance = {
+    info: store => ({ available: true, origin_address: DELIVERY_ORIGINS[store], mode: 'scooter', provider: 'geoapify' }),
+    async calculate(...args) {
+      distanceCalls.push(args);
+      if (calculate) return await calculate(...args);
+      const [store, address] = args;
+      return { distance_km: 3.25, address, matched_address: address, origin_address: DELIVERY_ORIGINS[store],
+        mode: 'scooter', provider: 'geoapify', estimated: true };
+    },
+  };
+  return { ...fixture({ distance }), distanceCalls };
+}
+
+for (const store of [1, 2]) {
+  test(`門市${store}距離action只用已驗證門市，回應echo地址且不碰DB或Storage`, async () => {
+    const { request, calls, distanceCalls } = distanceFixture();
+    const address = '屏東縣潮州鎮測試路99號';
+    const result = await request({ action: 'distance', address: ` ${address} ` }, { token: TOKENS[store] });
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.data, { distance_km: 3.25, address, matched_address: address,
+      origin_address: DELIVERY_ORIGINS[store], mode: 'scooter', provider: 'geoapify', estimated: true });
+    assert.deepEqual(distanceCalls[0].slice(0, 2), [store, address]);
+    assert.match(distanceCalls[0][2], /^[0-9a-f]{64}$/);
+    assert.notEqual(distanceCalls[0][2], TOKENS[store]);
+    assert.deepEqual(calls, []);
+    const loaded = await request(undefined, { token: TOKENS[store] });
+    assert.deepEqual(loaded.data.distance_service, { available: true, origin_address: DELIVERY_ORIGINS[store], mode: 'scooter', provider: 'geoapify' });
+    assert.equal(distanceCalls.length, 1, 'load must not request a route');
+  });
+}
+test('沒有地圖設定時距離回503，查詢/新增/看照片照常使用', async () => {
+  const { request, calls } = fixture();
+  const result = await request({ action: 'distance', address: '屏東縣潮州鎮測試路99號' });
+  assert.equal(result.status, 503);
+  assert.equal(result.data.code, 'distance_unavailable');
+  assert.match(result.data.error, /手動/);
+  assert.deepEqual(calls, []);
+  const loaded = await request();
+  assert.equal(loaded.status, 200);
+  assert.deepEqual(loaded.data.distance_service, { available: false, origin_address: DELIVERY_ORIGINS[1], mode: 'scooter', provider: 'geoapify' });
+  assert.equal((await request(saveBody())).status, 200);
+  assert.equal((await request({ action: 'photo', id: ID })).status, 200);
+});
+test('距離查詢不得指定其他門市/起點/模式/金鑰/任意URL或混入照片', async () => {
+  const { request, calls, distanceCalls } = distanceFixture();
+  for (const changes of [{ store_id: 2 }, { origin_address: '另一門市' }, { mode: 'drive' },
+    { apiKey: 'browser-key' }, { url: 'http://internal.invalid/' }, { lat: 22.5, lon: 120.5 }]) {
+    assert.equal((await request({ action: 'distance', address: '屏東縣潮州鎮測試路99號', ...changes })).status, 400);
+  }
+  assert.equal((await request({ action: 'distance', address: '屏東縣潮州鎮測試路99號' },
+    { photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) })).status, 400);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(distanceCalls, []);
+});
+test('距離地址型別/長度/控制字元先驗證，未登入或跨店角色不呼叫provider', async () => {
+  const { request, calls, distanceCalls } = distanceFixture();
+  for (const address of ['', null, 123, '路'.repeat(301), '測試\u0000地址']) {
+    const result = await request({ action: 'distance', address });
+    assert.equal(result.status, 422);
+    assert.equal(result.data.code, 'distance_address_invalid');
+  }
+  const body = { action: 'distance', address: '屏東縣潮州鎮測試路99號' };
+  assert.equal((await request(body, { token: '' })).status, 401);
+  assert.equal((await request(body, { token: await sign({ store: 3, admin: false, exp: NOW + 60000 }) })).status, 403);
+  assert.equal((await request(body, { token: await sign({ store: 1, admin: true, exp: NOW + 60000 }) })).status, 403);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(distanceCalls, []);
+});
+for (const [status, code] of [[422, 'distance_address_invalid'], [422, 'distance_no_route'], [429, 'distance_rate_limited'], [503, 'distance_unavailable']]) {
+  test(`地圖錯誤${code}保留獨立code，不當成登入403`, async () => {
+    const { request, calls } = distanceFixture(() => { throw new DistanceError('請確認地址或手動輸入公里數。', status, code, status === 429 ? 20 : undefined); });
+    const result = await request({ action: 'distance', address: '屏東縣潮州鎮測試路99號' });
+    assert.equal(result.status, status);
+    assert.equal(result.data.code, code);
+    if (status === 429) {
+      assert.equal(result.headers.get('retry-after'), '20');
+      assert.match(result.headers.get('access-control-expose-headers'), /Retry-After/);
+    }
+    assert.deepEqual(calls, []);
+  });
+}
+test('未知地圖錯誤不回傳provider URL或secret', async () => {
+  const { request } = distanceFixture(() => { throw new Error('https://api.geoapify.com/?apiKey=private-test-key'); });
+  const result = await request({ action: 'distance', address: '屏東縣潮州鎮測試路99號' });
+  assert.equal(result.status, 503);
+  assert.equal(result.data.code, 'distance_unavailable');
+  assert.equal(JSON.stringify(result.data).includes('private-test-key'), false);
+});
 
 for (const store of [1, 2]) {
   test(`門市${store}登入後只把自己的識別送至資料庫`, async () => {

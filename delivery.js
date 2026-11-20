@@ -2,6 +2,7 @@ import { ALLOWED_STORES, taipeiDateTime, isValidMonth, validateFields, isAllowed
 
 const API = 'https://rjetwgrelmvciatouwiw.supabase.co/functions/v1/delivery-api';
 const PHOTO_ORIGIN = 'https://rjetwgrelmvciatouwiw.supabase.co';
+const STORE_ORIGINS = Object.freeze({ 1: '屏東縣潮州鎮文化路42號', 2: '屏東縣潮州鎮東華路25號' });
 const $ = id => document.getElementById(id);
 const fields = { unit_name: 'unit-name', address: 'address', courier: 'courier', delivered_at: 'delivered-at', amount: 'amount', distance_km: 'distance-km' };
 const numberFormat = new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 2 });
@@ -12,6 +13,8 @@ const state = {
   newId: crypto.randomUUID(), dirty: false, signature: '', conflict: false,
   pendingSave: null, photo: null, photoURL: '', photoBusy: false, photoError: '',
   photoVersion: 0, loadVersion: 0, viewerVersion: 0, viewerId: null,
+  distanceService: null, distanceVersion: 0, distanceTimer: null, distanceController: null,
+  distanceStatus: 'idle', distanceAddress: '', distanceAttemptedAddress: '', distanceResult: null, distanceError: '',
 };
 
 class ApiError extends Error {
@@ -85,6 +88,8 @@ function invalidateSession(message) {
   state.pendingSave = null;
   state.dirty = false;
   state.conflict = false;
+  resetDistance();
+  state.distanceService = null;
   clearNewPhoto();
   closeViewer();
   $('delivery-form').reset();
@@ -110,14 +115,151 @@ function handleFailure(error) {
 
 function busy() { return state.loading || state.mutating; }
 
+function distancePending() { return state.distanceStatus === 'scheduled' || state.distanceStatus === 'loading'; }
+
+function cancelDistanceWork() {
+  state.distanceVersion++;
+  if (state.distanceTimer !== null) clearTimeout(state.distanceTimer);
+  state.distanceTimer = null;
+  state.distanceController?.abort();
+  state.distanceController = null;
+  if (distancePending()) state.distanceStatus = 'idle';
+}
+
+function resetDistance() {
+  cancelDistanceWork();
+  state.distanceStatus = 'idle';
+  state.distanceAddress = '';
+  state.distanceAttemptedAddress = '';
+  state.distanceResult = null;
+  state.distanceError = '';
+}
+
+function configureDistanceService(service) {
+  const origin = STORE_ORIGINS[Number(state.session?.store_id)] || '';
+  const available = service?.available === true && service.origin_address === origin
+    && service.mode === 'scooter' && service.provider === 'geoapify';
+  if (state.distanceService && (state.distanceService.available !== available || state.distanceService.origin_address !== origin)) cancelDistanceWork();
+  state.distanceService = { available, origin_address: origin, mode: 'scooter', provider: 'geoapify' };
+}
+
+function syncDistanceControls() {
+  const service = state.distanceService;
+  const address = $('address').value.trim();
+  const origin = service?.origin_address || STORE_ORIGINS[Number(state.session?.store_id)];
+  $('distance-origin').textContent = origin ? `出發門市：${origin}` : '正在確認出發門市…';
+  let message;
+  if (!state.loaded) message = '正在確認自動計算服務…';
+  else if (!service?.available) message = '自動計算尚未啟用，可先手動填寫公里數';
+  else if (state.pendingSave) message = '本次送出使用的距離已保留，重試不會重新計算。';
+  else if (state.distanceStatus === 'loading') message = '正在計算機車單程道路距離…可按「手動填寫」停止等待。';
+  else if (state.distanceStatus === 'scheduled') message = '地址輸入完成後將自動估算距離，也可直接手動填寫。';
+  else if (state.distanceStatus === 'error') message = `${state.distanceError} 請確認地址後重新計算，或手動填寫公里數。`;
+  else if (state.distanceStatus === 'success') message = `預估 ${Number(state.distanceResult.distance_km).toFixed(2)} 公里 · 對應地址：${state.distanceResult.matched_address}`;
+  else if (state.distanceStatus === 'manual') message = '目前使用手動公里數；修改外送地址後，會清除舊值並重新估算。';
+  else message = '輸入完整外送地址，停留約 1 秒或離開地址欄位後，將自動估算距離。';
+  $('distance-feedback').textContent = message;
+  $('distance-feedback').className = `distance-feedback${state.distanceStatus === 'error' ? ' error' : ''}`;
+  $('distance-attribution').hidden = !state.distanceResult;
+  $('recalculate-distance').disabled = busy() || !state.loaded || !service?.available || !address || !!state.pendingSave || state.conflict || state.distanceStatus === 'loading';
+  $('manual-distance').disabled = busy() || !state.loaded || !!state.pendingSave || state.conflict;
+  $('distance-km').setAttribute('aria-busy', String(distancePending()));
+}
+
+function scheduleDistance() {
+  const address = $('address').value.trim();
+  if (busy() || !state.loaded || !state.distanceService?.available || !address || state.pendingSave || state.conflict
+    || distancePending() || state.distanceStatus === 'manual' || state.distanceAttemptedAddress === address) return;
+  state.distanceStatus = 'scheduled';
+  state.distanceTimer = setTimeout(() => { state.distanceTimer = null; void calculateDistance(); }, 1000);
+  syncControls();
+}
+
+function addressChanged() {
+  const address = $('address').value.trim();
+  if (address !== state.distanceAddress) {
+    cancelDistanceWork();
+    state.distanceAddress = address;
+    state.distanceAttemptedAddress = '';
+    state.distanceResult = null;
+    state.distanceError = '';
+    state.distanceStatus = 'idle';
+    $('distance-km').value = '';
+    $('distance-km').removeAttribute('aria-invalid');
+    $('distance-km-error').hidden = true;
+  }
+  markChanged();
+  scheduleDistance();
+}
+
+function useManualDistance() {
+  cancelDistanceWork();
+  state.distanceStatus = 'manual';
+  state.distanceResult = null;
+  state.distanceError = '';
+  state.distanceAttemptedAddress = $('address').value.trim();
+}
+
+async function calculateDistance({ force = false } = {}) {
+  if (state.distanceTimer !== null) clearTimeout(state.distanceTimer);
+  state.distanceTimer = null;
+  if (state.distanceStatus === 'scheduled') state.distanceStatus = 'idle';
+  const address = $('address').value.trim();
+  if (busy() || !state.loaded || !state.distanceService?.available || !address || state.pendingSave || state.conflict
+    || state.distanceStatus === 'loading' || !force && (state.distanceStatus === 'manual' || state.distanceAttemptedAddress === address)) {
+    syncControls();
+    return;
+  }
+  cancelDistanceWork();
+  const request = state.distanceVersion;
+  const sessionToken = state.session.token;
+  const storeId = Number(state.session.store_id);
+  const origin = state.distanceService.origin_address;
+  const controller = new AbortController();
+  state.distanceController = controller;
+  state.distanceStatus = 'loading';
+  state.distanceAttemptedAddress = address;
+  state.distanceResult = null;
+  state.distanceError = '';
+  $('distance-km').value = '';
+  markChanged();
+  try {
+    const data = await api('distance', { address }, null, { signal: controller.signal, timeoutMs: 20000 });
+    if (request !== state.distanceVersion || !sameSession() || state.session.token !== sessionToken || Number(state.session.store_id) !== storeId
+      || $('address').value.trim() !== address || state.distanceService?.origin_address !== origin || state.mutating || state.pendingSave) return;
+    if (typeof data.distance_km !== 'number' || !Number.isFinite(data.distance_km) || data.distance_km < 0 || data.distance_km > 99999.99
+      || data.address !== address || data.origin_address !== origin || data.mode !== 'scooter' || data.provider !== 'geoapify'
+      || typeof data.matched_address !== 'string' || !data.matched_address.trim()) {
+      throw new ApiError('距離回應不完整，尚未填入公里數。', 0, 'distance_invalid_response');
+    }
+    state.distanceResult = data;
+    state.distanceStatus = 'success';
+    $('distance-km').value = data.distance_km.toFixed(2);
+    $('distance-km').removeAttribute('aria-invalid');
+    $('distance-km-error').hidden = true;
+    markChanged();
+  } catch (error) {
+    if (request !== state.distanceVersion) return;
+    if (!String(error.code || '').startsWith('distance_') && handleFailure(error)) return;
+    state.distanceStatus = 'error';
+    state.distanceError = error.message || '暫時無法計算距離。';
+  } finally {
+    if (request === state.distanceVersion) {
+      state.distanceController = null;
+      if (state.distanceStatus === 'loading') state.distanceStatus = 'idle';
+      syncControls();
+    }
+  }
+}
+
 function syncControls() {
   const blocked = busy();
   document.querySelectorAll('#delivery-form input, #delivery-form textarea, #delivery-form button').forEach(el => { el.disabled = blocked; });
   for (const id of ['history-month', 'refresh', 'access-retry', 'reload-conflict']) $(id).disabled = blocked;
-  $('save').disabled = blocked || !state.loaded || state.photoBusy || !!state.photoError || state.conflict;
+  $('save').disabled = blocked || !state.loaded || state.photoBusy || !!state.photoError || state.conflict || distancePending();
   $('save').textContent = state.mutating ? '儲存中…' : state.photoBusy ? '照片處理中…' : '儲存外送記錄';
-  $('save-hint').textContent = state.photoError ? '請重新選照片或取消新照片' : state.dirty ? '有尚未儲存的內容' : '金額以新台幣記錄';
-  $('delivery-form').setAttribute('aria-busy', String(state.mutating || state.photoBusy));
+  $('save-hint').textContent = state.photoError ? '請重新選照片或取消新照片' : distancePending() ? '正在估算距離，可改用手動填寫' : state.dirty ? '有尚未儲存的內容' : '金額以新台幣記錄';
+  $('delivery-form').setAttribute('aria-busy', String(state.mutating || state.photoBusy || distancePending()));
   $('previous-page').disabled = blocked || !state.listReady || state.page === 0;
   $('next-page').disabled = blocked || !state.listReady || !state.hasMore;
   document.querySelectorAll('#history-body button').forEach(el => { el.disabled = blocked; });
@@ -130,6 +272,7 @@ function syncControls() {
   $('photo-summary').textContent = state.photo
     ? '照片會隨資料一併上傳，成功後僅供查看，不能更換或移除。'
     : '每筆可附一張照片，請在本次上傳前選取。未附單據送出後不能補傳。';
+  syncDistanceControls();
 }
 
 function signature() {
@@ -145,6 +288,7 @@ function markChanged() {
 
 function resetForm({ courier = '' } = {}) {
   clearNewPhoto();
+  resetDistance();
   state.newId = crypto.randomUUID();
   state.pendingSave = null;
   state.conflict = false;
@@ -159,11 +303,14 @@ function resetForm({ courier = '' } = {}) {
   syncControls();
 }
 
-async function api(action, body = {}, form = null) {
+async function api(action, body = {}, form = null, { signal, timeoutMs } = {}) {
   if (!sameSession()) throw new ApiError('門市登入已變更，請回叫貨系統確認登入後再開啟外送記錄。', 403);
   const sessionToken = state.session.token;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), form ? 45000 : 25000);
+  const abort = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  else signal?.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(abort, timeoutMs || (form ? 45000 : 25000));
   let response;
   try {
     response = await fetch(API, {
@@ -173,8 +320,8 @@ async function api(action, body = {}, form = null) {
   } catch (error) {
     throw new ApiError(action === 'save'
       ? '連線中斷，尚無法確認這次儲存結果。輸入與照片已保留，請保持內容不變並再按儲存，系統會避免重複記錄。'
-      : error.name === 'AbortError' ? '連線逾時，請檢查網路後重試。' : '無法連上雲端，請檢查網路後重試。');
-  } finally { clearTimeout(timer); }
+      : error.name === 'AbortError' ? action === 'distance' ? '距離計算逾時，尚未填入公里數。' : '連線逾時，請檢查網路後重試。' : '無法連上雲端，請檢查網路後重試。');
+  } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
   if (!sameSession() || state.session.token !== sessionToken) throw new ApiError('門市登入已變更，請回叫貨系統重新開啟外送記錄。', 403);
   let data;
   try { data = await response.json(); }
@@ -267,6 +414,7 @@ async function loadList({ initial = false } = {}) {
       return await loadList({ initial });
     }
     state.loaded = true;
+    configureDistanceService(data.distance_service);
     state.listReady = true;
     state.records = data.records;
     state.totalCount = Number(data.total_count);
@@ -287,7 +435,7 @@ async function loadList({ initial = false } = {}) {
     if (initial || !state.loaded) setGate(error.message, { retry: true });
     return false;
   } finally {
-    if (request === state.loadVersion) { state.loading = false; syncControls(); }
+    if (request === state.loadVersion) { state.loading = false; syncControls(); scheduleDistance(); }
   }
 }
 
@@ -297,7 +445,7 @@ function confirmDiscard(message = '目前內容尚未儲存，確定放棄這份
 
 async function saveRecord(event) {
   event.preventDefault();
-  if (busy() || !state.loaded || state.photoBusy || state.photoError || state.conflict) return;
+  if (busy() || !state.loaded || state.photoBusy || state.photoError || state.conflict || distancePending()) return;
   clearErrors();
   const raw = Object.fromEntries(Object.entries(fields).map(([field, id]) => [field, $(id).value]));
   const validation = validateFields(raw);
@@ -316,6 +464,7 @@ async function saveRecord(event) {
     ? '單據照片將一併上傳，之後不能更換或移除。'
     : '本次未附單據；送出後不能補傳照片。';
   if (!window.confirm(`確認上傳「${validation.value.unit_name}」？\n\n上傳成功後僅供查詢，所有欄位與單據照片都不能編輯或刪除。\n${photoNotice}\n請確認資料無誤後再上傳。`)) return;
+  cancelDistanceWork();
   if (!state.pendingSave) {
     state.pendingSave = {
       action: 'save', ...validation.value, id: state.newId,
@@ -443,7 +592,15 @@ $('delivery-form').addEventListener('input', event => {
   if (event.target.type === 'file') return;
   const id = event.target.id;
   if (Object.values(fields).includes(id)) { $(id).removeAttribute('aria-invalid'); $(`${id}-error`).hidden = true; }
+  if (id === 'address') { addressChanged(); return; }
+  if (id === 'distance-km') useManualDistance();
   markChanged();
+});
+$('address').addEventListener('blur', () => { void calculateDistance(); });
+$('recalculate-distance').addEventListener('click', () => { void calculateDistance({ force: true }); });
+$('manual-distance').addEventListener('click', () => {
+  if (busy() || !state.loaded || state.pendingSave || state.conflict) return;
+  useManualDistance(); syncControls(); $('distance-km').focus();
 });
 $('take-photo').addEventListener('click', () => $('camera-input').click());
 $('choose-photo').addEventListener('click', () => $('gallery-input').click());
@@ -483,7 +640,7 @@ window.addEventListener('beforeunload', event => {
 document.querySelectorAll('a[href="index.html"]').forEach(link => link.addEventListener('click', event => {
   if (state.mutating) { event.preventDefault(); return; }
   if (!confirmDiscard('外送資料尚未儲存，確定放棄修改並回叫貨系統？')) event.preventDefault();
-  else { state.dirty = false; clearNewPhoto(); }
+  else { state.dirty = false; clearNewPhoto(); cancelDistanceWork(); }
 }));
 
 function checkSessionChange() {

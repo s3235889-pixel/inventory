@@ -1,5 +1,7 @@
 // Shared receipt login; only authenticated 潮州店(C1) and 木崎(C2) may use this API.
 // No browser-provided store identifier, object path, or service key is trusted.
+import { createDistanceService, DistanceError } from './distance.ts';
+import type { DistanceService } from './distance.ts';
 const ORIGIN = 'https://s3235889-pixel.github.io';
 const STORES: Record<number, string> = { 1: '潮州店(C1)', 2: '木崎(C2)' };
 const PAGE_SIZE = 50;
@@ -32,6 +34,7 @@ export type Dependencies = {
   uploadPhoto: (path: string, bytes: Uint8Array, mime: string) => Promise<{ error: DatabaseError | null }>;
   removePhotos: (paths: string[]) => Promise<{ error: DatabaseError | null }>;
   signPhoto: (path: string, seconds: number) => Promise<Result<{ signedUrl: string }>>;
+  distance?: DistanceService;
   now?: () => number;
 };
 
@@ -182,10 +185,12 @@ function databaseFailure(error: DatabaseError): never {
 
 export function createHandler(dependencies: Dependencies) {
   const now = dependencies.now || Date.now;
+  const distance = dependencies.distance || createDistanceService();
   const headers = {
     'Access-Control-Allow-Origin': ORIGIN,
     'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Expose-Headers': 'Retry-After',
     'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', Vary: 'Origin',
   };
   async function cleanup(paths: string[]) {
@@ -211,7 +216,22 @@ export function createHandler(dependencies: Dependencies) {
         if (error) databaseFailure(error);
         if (!data) fail('外送紀錄尚未讀取完成，請重試', 503);
         return Response.json({ ...data, store_id: store, store_name: STORES[store], month: body.month, page, page_size: PAGE_SIZE,
-          has_more: (page + 1) * PAGE_SIZE < Number(data.total_count) }, { headers });
+          has_more: (page + 1) * PAGE_SIZE < Number(data.total_count), distance_service: distance.info(store) }, { headers });
+      }
+      if (body.action === 'distance') {
+        onlyKeys(body, ['action', 'address']);
+        if (typeof body.address !== 'string' || !body.address.trim() || [...body.address.trim()].length > 300
+          || /[\u0000-\u001f\u007f]/.test(body.address)) {
+          fail('請填寫完整的臺灣外送地址（最多 300 個字）。', 422, 'distance_address_invalid');
+        }
+        // Only the verified token selects the store. Keep raw tokens out of the
+        // provider's best-effort per-session limiter and all response objects.
+        const sessionKey = await digest(encoder.encode(request.headers.get('authorization')!.slice(7)));
+        try { return Response.json(await distance.calculate(store, body.address.trim(), sessionKey), { headers }); }
+        catch (error) {
+          if (error instanceof DistanceError) throw error;
+          fail('暫時無法自動計算機車距離，請稍後重試，或手動輸入公里數。', 503, 'distance_unavailable');
+        }
       }
       if (body.action === 'save') {
         onlyKeys(body, ['action', 'id', 'request_id', 'expected_version', 'unit_name', 'address', 'courier', 'delivered_at', 'amount', 'distance_km', 'remove_photo']);
@@ -275,6 +295,9 @@ export function createHandler(dependencies: Dependencies) {
       }
       fail('不支援的外送記錄操作');
     } catch (error) {
+      if (error instanceof DistanceError) return Response.json({ error: error.message, code: error.code }, {
+        status: error.status, headers: { ...headers, ...(error.retryAfter ? { 'Retry-After': String(error.retryAfter) } : {}) },
+      });
       if (error instanceof RequestError) return Response.json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, { status: error.status, headers });
       return Response.json({ error: '連線暫時異常，請稍後再試；若剛送出儲存，請保留內容並重試確認。' }, { status: 503, headers });
     }
