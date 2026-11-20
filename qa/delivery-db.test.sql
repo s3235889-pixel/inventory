@@ -1,6 +1,7 @@
--- Run after both delivery migrations with a database management connection.
+-- Run after all delivery migrations with a database management connection.
 -- This script aborts if its historical test month has any existing data.
--- All inserts, attempted edits, deletion markers and role changes are ROLLED BACK.
+-- All inserts, attempted edits/deletes and role changes are ROLLED BACK.
+-- Never TRUNCATE the live table here; its trigger is exercised only in isolated local QA.
 begin;
 do $$
 declare
@@ -9,6 +10,8 @@ declare
   id3 uuid := gen_random_uuid();
   id4 uuid := gen_random_uuid();
   legacy_id uuid := gen_random_uuid();
+  tombstone_id uuid := gen_random_uuid();
+  tombstone_request uuid := gen_random_uuid();
   request1 uuid := gen_random_uuid();
   request2 uuid := gen_random_uuid();
   fingerprint1 text := repeat('a', 64);
@@ -25,6 +28,9 @@ declare
   month_result jsonb;
   field_change record;
   assignment text;
+  as_service boolean;
+  blocked_code text;
+  attempted_version integer;
   denied boolean;
   before_count bigint;
 begin
@@ -38,6 +44,8 @@ begin
   replacement_path := '1/' || id1 || '/' || gen_random_uuid() || '-' || repeat('d',64) || '.png';
   addition_path := '1/' || id2 || '/' || gen_random_uuid() || '-' || repeat('c',64) || '.jpg';
 
+  -- SELECT/INSERT permissions must be enough for create, exact retry and read.
+  execute 'set local role service_role';
   result := public.save_delivery_record(1,id1,request1,0,payload,path1,false,fingerprint1);
   assert (result -> 'record' ->> 'version')::integer = 1, 'new record version';
   assert (result -> 'record' ->> 'has_photo')::boolean, 'saved photo indicator';
@@ -48,6 +56,8 @@ begin
   assert result ->> 'photo_path' = path1, 'retry replaced committed photo';
   assert result -> 'unused_photo_paths' = '[]'::jsonb, 'retry scheduled original photo for cleanup';
   assert (select count(*) from public.delivery_records) = before_count + 1, 'retry duplicated record';
+  assert (public.load_delivery_records(1,'1900-02',0) ->> 'total_count')::integer = 1, 'service role could not query after permission reduction';
+  execute 'reset role';
 
   denied := false;
   begin
@@ -70,7 +80,7 @@ begin
   denied := false;
   begin
     perform public.delete_delivery_record(2,id1,1);
-  exception when no_data_found then denied := true;
+  exception when object_not_in_prerequisite_state then denied := true;
   end;
   assert denied, 'another store deleted this record';
 
@@ -123,30 +133,33 @@ begin
   end;
   assert denied, 'photo could be removed';
 
-  -- Direct service-role writes must hit the same guard, including identity,
-  -- metadata-only changes, and attempts to combine an edit with a deletion.
-  execute 'set local role service_role';
-  assert current_user = 'service_role', 'direct update tests did not use service_role';
-  foreach assignment in array array[
-    'unit_name = ''修改單位''', 'address = ''修改地址''', 'courier = ''修改人員''',
-    'delivered_at = delivered_at + interval ''1 minute''', 'amount = amount + 1', 'distance_km = distance_km + 1',
-    'photo_path = null', format('photo_path = %L', replacement_path),
-    'id = gen_random_uuid()', 'store_id = 2', 'created_at = created_at + interval ''1 minute''',
-    'last_request_id = gen_random_uuid()', 'last_request_fingerprint = repeat(''e'',64)',
-    'version = version + 1', 'updated_at = updated_at + interval ''1 minute''', 'deleted_at = clock_timestamp()',
-    'unit_name = ''修改單位'', deleted_at = clock_timestamp(), version = version + 1',
-    'photo_path = null, deleted_at = clock_timestamp(), version = version + 1'
-  ] loop
-    denied := false;
-    begin
-      execute 'update public.delivery_records set ' || assignment || ' where id = $1' using id1;
-    exception when object_not_in_prerequisite_state then denied := true;
-    end;
-    assert denied, 'direct service-role update bypassed immutability: ' || assignment;
+  -- Service-role table privileges reject writes. The management connection
+  -- independently verifies the trigger, using only the newly inserted test UUID.
+  for as_service in select unnest(array[true,false]) loop
+    if as_service then execute 'set local role service_role'; end if;
+    foreach assignment in array array[
+      'unit_name = ''修改單位''', 'address = ''修改地址''', 'courier = ''修改人員''',
+      'delivered_at = delivered_at + interval ''1 minute''', 'amount = amount + 1', 'distance_km = distance_km + 1',
+      'photo_path = null', format('photo_path = %L', replacement_path),
+      'id = gen_random_uuid()', 'store_id = 2', 'created_at = created_at + interval ''1 minute''',
+      'last_request_id = gen_random_uuid()', 'last_request_fingerprint = repeat(''e'',64)',
+      'version = version + 1', 'updated_at = updated_at + interval ''1 minute''', 'deleted_at = clock_timestamp()',
+      'deleted_at = clock_timestamp(), updated_at = clock_timestamp(), version = version + 1',
+      'unit_name = ''修改單位'', deleted_at = clock_timestamp(), version = version + 1',
+      'photo_path = null, deleted_at = clock_timestamp(), version = version + 1'
+    ] loop
+      blocked_code := null;
+      begin
+        execute 'update public.delivery_records set ' || assignment || ' where id = $1' using id1;
+      exception when object_not_in_prerequisite_state or insufficient_privilege then blocked_code := sqlstate;
+      end;
+      assert blocked_code is not distinct from (case when as_service then '42501' else '55000' end),
+        'direct update was not rejected by the expected permission/trigger: ' || assignment;
+    end loop;
+    if as_service then execute 'reset role'; end if;
   end loop;
-  execute 'reset role';
   assert (select to_jsonb(r) from public.delivery_records r where id=id1) = original_row,
-    'a refused edit changed the original record or photo';
+    'a refused edit or soft deletion changed the original record or photo';
 
   -- Taiwan midnight 2/1 is January 31, 16:00 UTC; 2/28 23:59 is included.
   second_payload := jsonb_set(payload,'{delivered_at}','"1900-02-28T15:59:59Z"');
@@ -164,7 +177,7 @@ begin
   denied := false;
   begin
     update public.delivery_records set photo_path=addition_path where id=id2;
-  exception when object_not_in_prerequisite_state then denied := true;
+  exception when insufficient_privilege then denied := true;
   end;
   assert denied, 'direct service-role update added a photo';
   execute 'reset role';
@@ -193,46 +206,68 @@ begin
   assert jsonb_array_length(public.load_delivery_records(1,'1900-02',1) -> 'records') = 3, 'second page size';
   assert (public.load_delivery_records(1,'1900-02',1) ->> 'total_amount')::numeric = 2452.00, 'page2 total is not whole-month total';
 
-  denied := false;
-  begin
-    perform public.delete_delivery_record(1,id1,2);
-  exception when serialization_failure then denied := true;
-  end;
-  assert denied, 'wrong-version deletion was accepted';
-  result := public.delete_delivery_record(1,id1,1);
-  assert (result ->> 'ok')::boolean, 'delete not acknowledged';
-  assert result ->> 'photo_path' = path1, 'deleted photo not scheduled for cleanup';
-  result := public.delete_delivery_record(1,id1,1);
-  assert (result ->> 'ok')::boolean, 'delete retry is not idempotent';
-  assert (select version=2 and deleted_at is not null from public.delivery_records where id=id1), 'delete metadata transition failed';
-  assert (select to_jsonb(r) - array['deleted_at','version','updated_at'] from public.delivery_records r where id=id1)
-    = original_row - array['deleted_at','version','updated_at'], 'deletion changed immutable data';
-  assert (public.load_delivery_records(1,'1900-02',0) ->> 'total_count')::integer = 52, 'deleted record still visible';
-  denied := false;
-  begin
-    perform public.save_delivery_record(1,id1,request1,0,payload,path1,false,fingerprint1);
-  exception when serialization_failure then denied := true;
-  end;
-  assert denied, 'exact retry resurrected a deleted record';
+  -- Cached delete RPC calls, direct soft deletion, and hard deletion all fail.
+  -- No cleanup path or deletion metadata may be produced by a rejected RPC.
   execute 'set local role service_role';
+  foreach attempted_version in array array[1,2,4] loop
+    denied := false;
+    begin
+      perform public.delete_delivery_record(1,id1,attempted_version);
+    exception when object_not_in_prerequisite_state then denied := true;
+    end;
+    assert denied, 'delete RPC was accepted for version ' || attempted_version;
+  end loop;
   denied := false;
   begin
-    update public.delivery_records set deleted_at=null,version=1 where id=id1;
+    delete from public.delivery_records where id=id1;
+  exception when insufficient_privilege then denied := true;
+  end;
+  assert denied, 'service role hard-deleted an uploaded record';
+  execute 'reset role';
+  denied := false;
+  begin
+    delete from public.delivery_records where id=id1;
   exception when object_not_in_prerequisite_state then denied := true;
   end;
-  assert denied, 'direct service-role update resurrected a tombstone';
-  execute 'reset role';
+  assert denied, 'hard deletion bypassed the table trigger';
+  assert (select to_jsonb(r) from public.delivery_records r where id=id1) = original_row,
+    'a denied delete changed the original row or photo path';
+  assert (public.load_delivery_records(1,'1900-02',0) ->> 'total_count')::integer = 53,
+    'a denied delete made an uploaded record disappear';
+  result := public.save_delivery_record(1,id1,request1,0,payload,retry_path,false,fingerprint1);
+  assert result ->> 'photo_path' = path1 and (result -> 'record' ->> 'version')::integer = 1,
+    'a denied delete broke an exact retry';
 
-  -- Rows that predate this rule may already have a larger version. They remain
-  -- deletable using the same RPC and their business data stays unchanged.
+  -- Existing higher versions and old tombstones receive the same protections.
+  -- These are synthetic rows only; no preexisting production row is modified.
   insert into public.delivery_records
     (id,store_id,unit_name,address,courier,delivered_at,amount,distance_km,version,last_request_id,last_request_fingerprint)
     values (legacy_id,1,'QA legacy','測試地址','測試人員',timestamptz '1900-03-01 12:00+08',1,1,4,gen_random_uuid(),fingerprint1);
-  result := public.delete_delivery_record(1,legacy_id,4);
-  assert (result ->> 'ok')::boolean, 'legacy version could not be deleted';
-  assert (select version=5 and deleted_at is not null from public.delivery_records where id=legacy_id), 'legacy deletion transition failed';
+  denied := false;
+  begin
+    perform public.delete_delivery_record(1,legacy_id,4);
+  exception when object_not_in_prerequisite_state then denied := true;
+  end;
+  assert denied, 'legacy higher-version record could be deleted';
+  assert (select version=4 and deleted_at is null from public.delivery_records where id=legacy_id), 'legacy record changed';
+  insert into public.delivery_records
+    (id,store_id,unit_name,address,courier,delivered_at,amount,distance_km,version,last_request_id,last_request_fingerprint,deleted_at)
+    values (tombstone_id,1,'QA tombstone','測試地址','測試人員',timestamptz '1900-03-01 12:00+08',1,1,2,tombstone_request,fingerprint1,clock_timestamp());
+  denied := false;
+  begin
+    perform public.save_delivery_record(1,tombstone_id,tombstone_request,0,payload,null,false,fingerprint1);
+  exception when serialization_failure then denied := true;
+  end;
+  assert denied, 'retry resurrected an old tombstone';
+  denied := false;
+  begin
+    update public.delivery_records set deleted_at=null,version=1 where id=tombstone_id;
+  exception when object_not_in_prerequisite_state then denied := true;
+  end;
+  assert denied, 'update trigger allowed tombstone restoration';
+  assert (public.load_delivery_records(1,'1900-03',0) ->> 'total_count')::integer = 2, 'legacy tombstone became visible';
   result := public.save_delivery_record(1,gen_random_uuid(),gen_random_uuid(),0,payload,null,false,fingerprint1);
-  assert (result -> 'record' ->> 'version')::integer = 1, 'new records could not be added after deletion';
+  assert (result -> 'record' ->> 'version')::integer = 1, 'read-only rule prevented a new record';
 
   denied := false;
   begin
@@ -264,14 +299,24 @@ begin
   exception when insufficient_privilege then denied := true;
   end;
   assert denied, 'disallowed store created data';
+  assert has_table_privilege('service_role','public.delivery_records','SELECT'), 'service role cannot query records';
+  assert has_table_privilege('service_role','public.delivery_records','INSERT'), 'service role cannot create records';
+  assert not has_table_privilege('service_role','public.delivery_records','UPDATE'), 'service role can directly update records';
+  assert not has_table_privilege('service_role','public.delivery_records','DELETE'), 'service role can directly delete records';
+  assert not has_table_privilege('service_role','public.delivery_records','TRUNCATE'), 'service role can truncate records';
+  assert exists(select 1 from pg_trigger where tgrelid='public.delivery_records'::regclass
+    and tgname='delivery_records_no_truncate' and tgenabled='O'), 'TRUNCATE defense trigger is missing';
   assert not has_table_privilege('anon','public.delivery_records','SELECT'), 'anon can read delivery records';
   assert not has_table_privilege('anon','public.delivery_records','UPDATE'), 'anon can update delivery records';
   assert not has_table_privilege('authenticated','public.delivery_records','INSERT'), 'authenticated can bypass delivery API';
   assert not has_table_privilege('authenticated','public.delivery_records','UPDATE'), 'authenticated can update delivery records';
+  assert not has_table_privilege('anon','public.delivery_records','DELETE,TRUNCATE'), 'anon can delete/truncate records';
+  assert not has_table_privilege('authenticated','public.delivery_records','DELETE,TRUNCATE'), 'authenticated can delete/truncate records';
   assert not has_function_privilege('anon','public.load_delivery_records(integer,text,integer)','EXECUTE'), 'anon can invoke load';
   assert not has_function_privilege('authenticated','public.save_delivery_record(integer,uuid,uuid,integer,jsonb,text,boolean,text)','EXECUTE'), 'authenticated can invoke save';
   assert not has_function_privilege('anon','public.delete_delivery_record(integer,uuid,integer)','EXECUTE'), 'anon can invoke delete';
   assert not has_function_privilege('anon','public.enforce_delivery_record_immutability()','EXECUTE'), 'anon can invoke the trigger function';
+  assert not has_function_privilege('anon','public.prevent_delivery_record_deletion()','EXECUTE'), 'anon can invoke the deletion trigger function';
   assert (select relrowsecurity from pg_class where oid='public.delivery_records'::regclass), 'RLS not enabled';
   assert exists(select 1 from storage.buckets where id='delivery-photos' and not public and file_size_limit=8388608), 'private bounded bucket missing';
   assert exists(select 1 from pg_policies where schemaname='storage' and tablename='objects'

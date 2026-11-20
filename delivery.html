@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#293c69">
   <meta name="referrer" content="no-referrer">
   <title>外送記錄｜門市叫貨系統</title>
-  <link rel="stylesheet" href="delivery.css?v=20261120-lock1">
-  <script type="module" src="delivery.js?v=20261120-lock1"></script>
+  <link rel="stylesheet" href="delivery.css?v=20261121-readonly1">
+  <script type="module" src="delivery.js?v=20261121-readonly1"></script>
 </head>
 <body>
   <main class="shell">
@@ -34,11 +34,11 @@
         <div class="section-heading">
           <div><span class="eyebrow" id="form-mode">新增外送</span><h2 id="form-title">記下一筆外送</h2></div>
         </div>
-        <p id="upload-lock-note" class="message info">上傳成功後，資料與單據照片都不能再編輯。請確認內容後再送出；未附單據的紀錄，上傳後不能補傳照片。</p>
+        <p id="upload-lock-note" class="message info">上傳成功後僅供查詢，資料與單據照片不能編輯或刪除。請確認內容後再送出；未附單據的紀錄，上傳後不能補傳照片。</p>
         <div id="message" class="message" role="status" aria-live="polite" hidden></div>
         <div id="conflict" class="message error" role="alert" hidden>
           <strong>這筆資料無法再次上傳。</strong>
-          <p>已上傳的紀錄不能再修改。目前輸入與待傳照片仍保留在畫面，請先核對下方紀錄；若要填寫另一筆，請捨棄這份草稿後重新開始。</p>
+          <p>已上傳的紀錄僅供查詢，不能修改或刪除。目前輸入與待傳照片仍保留在畫面，請先核對下方紀錄；若要填寫另一筆，請捨棄這份草稿後重新開始。</p>
           <button type="button" class="button secondary" id="reload-conflict">捨棄草稿並重新讀取</button>
         </div>
         <form id="delivery-form" novalidate>
@@ -78,10 +78,10 @@
           <article class="summary-card"><h3>外送總金額</h3><p><strong id="total-amount">—</strong><span>元</span></p></article>
           <article class="summary-card"><h3>外送總距離</h3><p><strong id="total-distance">—</strong><span>公里</span></p></article>
         </div>
-        <p id="history-description" class="section-note">統計涵蓋所選月份的全部紀錄。已上傳的資料與單據不能再編輯。</p>
+        <p id="history-description" class="section-note">統計涵蓋所選月份的全部紀錄。已上傳的資料與單據僅供查詢，不能編輯或刪除。</p>
         <div id="list-state" class="list-state" role="status" aria-live="polite">正在讀取外送紀錄…</div>
         <div class="table-wrap" id="table-wrap" hidden>
-          <table><caption class="sr-only">外送紀錄，依外送日期時間由新到舊排列</caption><thead><tr><th scope="col">日期與時間</th><th scope="col">外送單位／地址</th><th scope="col">外送人員</th><th scope="col">金額</th><th scope="col">距離</th><th scope="col">單據與操作</th></tr></thead><tbody id="history-body"></tbody></table>
+          <table><caption class="sr-only">外送紀錄，依外送日期時間由新到舊排列</caption><thead><tr><th scope="col">日期與時間</th><th scope="col">外送單位／地址</th><th scope="col">外送人員</th><th scope="col">金額</th><th scope="col">距離</th><th scope="col">單據</th></tr></thead><tbody id="history-body"></tbody></table>
         </div>
         <div class="pagination" id="pagination" hidden><button type="button" class="button secondary" id="previous-page">上一頁</button><span id="page-info"></span><button type="button" class="button secondary" id="next-page">下一頁</button></div>
       </section>

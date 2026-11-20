@@ -77,12 +77,11 @@ async function harness(options = {}) {
       if (body.action === 'save') {
         const old = this.records.find(row => row.id === body.id);
         if (old?.request_id === body.request_id) return response(200, { record: old });
-        if (old || body.expected_version !== 0 || body.remove_photo) return response(403, { error: '外送紀錄上傳後不可再編輯', code: 'record_locked' });
+        if (old || body.expected_version !== 0 || body.remove_photo) return response(403, { error: '外送紀錄上傳後僅供查詢，不可編輯或刪除', code: 'record_locked' });
         const record = { ...body, version: 1, updated_at: new Date().toISOString(), has_photo: !!photo };
         this.records = [record, ...this.records];
         return response(200, { record });
       }
-      if (body.action === 'delete') { this.records = this.records.filter(row => row.id !== body.id); return response(200, { ok: true }); }
       if (body.action === 'photo') return response(200, { url: 'https://rjetwgrelmvciatouwiw.supabase.co/storage/v1/object/sign/delivery-photos/1/photo.jpg?token=fixture' });
       return response(400, { error: 'Unsupported' });
     },
@@ -153,10 +152,12 @@ test('saving confirms the permanent lock and creates a new record with explicit 
     assert.equal(h.$('courier').value, '小陳');
     assert.equal(h.$('total-count').textContent, '1');
     assert.match(h.$('message').textContent, /已上傳並鎖定/);
-    assert.match(h.confirmations[0], /所有欄位與單據照片都不能再編輯/);
+    assert.match(h.confirmations[0], /上傳成功後僅供查詢，所有欄位與單據照片都不能編輯或刪除/);
     assert.match(h.confirmations[0], /本次未附單據；送出後不能補傳照片/);
     assert.equal(h.$('history-body').querySelector('[data-action="edit"]'), null);
-    assert.match(h.$('history-description').textContent, /已上傳的資料與單據不能再編輯/);
+    assert.equal(h.$('history-body').querySelector('[data-action="delete"]'), null);
+    assert.match(h.$('message').textContent, /僅供查詢，不能編輯或刪除/);
+    assert.match(h.$('history-description').textContent, /已上傳的資料與單據僅供查詢，不能編輯或刪除/);
   } finally { h.close(); }
 });
 
@@ -203,7 +204,7 @@ test('changing an uncertain new draft keeps the record ID and changes only the o
 });
 
 test('a creation conflict keeps the draft and cannot be blindly resubmitted', async () => {
-  const h = await harness({ handler: (body, h, photo) => body.action === 'save' ? response(409, { error: '這筆紀錄已上傳或已刪除' }) : h.defaultResponse(body, photo) });
+  const h = await harness({ handler: (body, h, photo) => body.action === 'save' ? response(409, { error: '這筆紀錄已上傳，無法重複新增' }) : h.defaultResponse(body, photo) });
   try {
     await h.ready(); h.fill(); h.set('amount', '800'); h.submit(); await h.idle();
     assert.equal(h.$('amount').value, '800'); assert.equal(h.$('conflict').hidden, false); assert.equal(h.$('save').disabled, true);
@@ -215,7 +216,7 @@ test('a creation conflict keeps the draft and cannot be blindly resubmitted', as
 
 test('record_locked 403 keeps the session, draft and photo while preventing overwrite', async () => {
   const h = await harness({ handler: (body, h, photo) => body.action === 'save'
-    ? response(403, { error: '外送紀錄上傳後不可再編輯', code: 'record_locked' }) : h.defaultResponse(body, photo) });
+    ? response(403, { error: '外送紀錄上傳後僅供查詢，不可編輯或刪除', code: 'record_locked' }) : h.defaultResponse(body, photo) });
   try {
     await h.ready(); h.fill(); h.photo(); await waitFor(() => !h.$('save').disabled);
     const preview = h.$('photo-preview').src;
@@ -224,7 +225,7 @@ test('record_locked 403 keeps the session, draft and photo while preventing over
     assert.equal(h.$('unit-name').value, ' 潮州國小 '); assert.equal(h.$('amount').value, '600.50');
     assert.equal(h.$('photo-preview').src, preview); assert.equal(h.$('photo-preview-wrap').hidden, false);
     assert.equal(JSON.parse(h.w.sessionStorage.getItem('receipt-session')).token, h.session.token);
-    assert.match(h.$('message').textContent, /上傳後不可再編輯/);
+    assert.match(h.$('message').textContent, /上傳後僅供查詢，不可編輯或刪除/);
     assert.equal(h.$('conflict').hidden, false); assert.equal(h.$('save').disabled, true);
     h.submit(); assert.equal(h.requests.filter(r => r.action === 'save').length, 1);
   } finally { h.close(); }
@@ -283,13 +284,13 @@ test('photos can be canceled and reselected before the first upload', async () =
   } finally { h.close(); }
 });
 
-test('saved records expose only viewing and deletion and never refill the new-record form', async () => {
+test('saved records expose only receipt viewing and never refill the new-record form', async () => {
   const h = await harness();
   try {
     await h.ready(); h.fill(); h.photo();
     await waitFor(() => !h.$('save').disabled); h.submit(); await h.idle();
     const saved = clone(h.records[0]);
-    assert.deepEqual(Array.from(h.$('history-body').querySelectorAll('button'), button => button.dataset.action), ['photo', 'delete']);
+    assert.deepEqual(Array.from(h.$('history-body').querySelectorAll('button'), button => button.dataset.action), ['photo']);
     assert.equal(h.$('new-record'), null); assert.equal(h.$('view-existing-photo'), null); assert.equal(h.$('remove-existing-photo'), null);
     assert.equal(h.$('unit-name').value, ''); assert.equal(h.$('photo-preview-wrap').hidden, true);
     h.w.document.querySelector('[data-action="photo"]').click();
@@ -337,14 +338,22 @@ test('monthly totals cover all pages and user text remains inert', async () => {
   } finally { h.close(); }
 });
 
-test('failed delete preserves the row and success removes only the selected record', async () => {
-  let failDelete = true;
-  const h = await harness({ handler: (body, h, photo) => body.action === 'delete' && failDelete ? response(409, { error: '資料已更新' }) : h.defaultResponse(body, photo) });
+test('records without receipts remain query-only with no deletion or photo upload actions', async () => {
+  const h = await harness();
   try {
-    await h.ready(); h.records = [makeRow(h.month), makeRow(h.month, { unit_name: '第二筆' })]; h.click('refresh'); await h.idle();
-    h.w.document.querySelector('[data-action="delete"]').click(); await h.idle(); assert.equal(h.$('history-body').children.length, 2);
-    failDelete = false; h.w.document.querySelector('[data-action="delete"]').click(); await h.idle(); assert.equal(h.$('history-body').children.length, 1);
-    assert.match(h.$('history-body').textContent, /第二筆/);
+    await h.ready(); assert.match(h.$('list-state').textContent, /上傳後僅供查詢/);
+    h.records = [makeRow(h.month), makeRow(h.month, { unit_name: '第二筆' })];
+    const saved = clone(h.records);
+    h.click('refresh'); await h.idle();
+    assert.equal(h.$('history-body').children.length, 2);
+    assert.equal(h.$('history-body').querySelector('button'), null);
+    assert.equal(h.$('history-body').querySelectorAll('.no-photo').length, 2);
+    assert.equal(h.w.document.querySelector('thead th:last-child').textContent, '單據');
+    assert.match(h.$('upload-lock-note').textContent, /上傳成功後僅供查詢/);
+    assert.match(h.$('upload-lock-note').textContent, /不能編輯或刪除/);
+    h.click('refresh'); await h.idle();
+    assert.deepEqual(h.records, saved); assert.equal(h.$('total-count').textContent, '2');
+    assert.equal(h.requests.every(request => request.action === 'load'), true);
   } finally { h.close(); }
 });
 

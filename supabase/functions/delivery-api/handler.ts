@@ -24,12 +24,10 @@ export type SaveArguments = {
   p_photo_path: string | null; p_remove_photo: boolean; p_request_fingerprint: string;
 };
 export type SaveResult = { record: DeliveryRecord; photo_path: string | null; unused_photo_paths: string[] };
-export type DeleteResult = { ok: boolean; photo_path: string | null };
 export type Dependencies = {
   key: CryptoKey;
   loadRecords: (store: number, month: string, page: number) => Promise<Result<LoadResult>>;
   saveRecord: (args: SaveArguments) => Promise<Result<SaveResult>>;
-  deleteRecord: (store: number, id: string, version: number) => Promise<Result<DeleteResult>>;
   photoPath: (store: number, id: string) => Promise<Result<{ photo_path: string | null }>>;
   uploadPhoto: (path: string, bytes: Uint8Array, mime: string) => Promise<{ error: DatabaseError | null }>;
   removePhotos: (paths: string[]) => Promise<{ error: DatabaseError | null }>;
@@ -43,7 +41,7 @@ class RequestError extends Error {
   constructor(message: string, status = 400, code?: string) { super(message); this.status = status; this.code = code; }
 }
 function fail(message: string, status = 400, code?: string): never { throw new RequestError(message, status, code); }
-function recordLocked(): never { fail('外送紀錄上傳後不可再編輯', 403, 'record_locked'); }
+function recordLocked(): never { fail('外送紀錄上傳後僅供查詢，不可編輯或刪除', 403, 'record_locked'); }
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -252,18 +250,18 @@ export function createHandler(dependencies: Dependencies) {
           databaseFailure(result.error);
         }
         if (!result.data) fail('尚未收到儲存確認，請保留內容並再次儲存確認', 503);
-        const unused = [...(result.data.unused_photo_paths || [])];
-        if (path && path !== result.data.photo_path) unused.push(path);
-        await cleanup(unused);
+        // Never remove an earlier committed photo. Only this attempt's unused
+        // object can be cleaned up after an exact retry has been confirmed.
+        if (path && path !== result.data.photo_path) await cleanup([path]);
         return Response.json({ record: result.data.record }, { headers });
       }
       if (body.action === 'delete') {
         onlyKeys(body, ['action', 'id', 'expected_version']);
-        const { data, error } = await dependencies.deleteRecord(store, uuid(body.id, '紀錄識別碼'), version(body.expected_version, false));
-        if (error) databaseFailure(error);
-        if (!data?.ok) fail('尚未收到刪除確認，請重新載入後確認', 503);
-        if (data.photo_path) await cleanup([data.photo_path]);
-        return Response.json({ ok: true }, { headers });
+        uuid(body.id, '紀錄識別碼');
+        version(body.expected_version, false);
+        // Cached clients can still send delete. Do not invoke any database or
+        // storage operation: uploaded records and their photos are read-only.
+        recordLocked();
       }
       if (body.action === 'photo') {
         onlyKeys(body, ['action', 'id']);

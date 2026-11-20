@@ -1,6 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.57.4';
 import { createHandler } from './handler.ts';
-import type { DeleteResult, LoadResult, SaveResult } from './handler.ts';
+import type { LoadResult, SaveResult } from './handler.ts';
 
 const secret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const url = Deno.env.get('SUPABASE_URL');
@@ -18,10 +18,6 @@ Deno.serve(createHandler({
   async saveRecord(args) {
     const { data, error } = await db.rpc('save_delivery_record', args);
     return { data: data as SaveResult | null, error };
-  },
-  async deleteRecord(store, id, version) {
-    const { data, error } = await db.rpc('delete_delivery_record', { p_store_id: store, p_id: id, p_expected_version: version });
-    return { data: data as DeleteResult | null, error };
   },
   async photoPath(store, id) {
     return await db.from('delivery_records').select('photo_path').eq('store_id', store).eq('id', id).is('deleted_at', null).maybeSingle();

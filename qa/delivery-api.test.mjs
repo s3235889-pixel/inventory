@@ -163,7 +163,7 @@ for (const [name, changes, withPhoto] of [
     const { request, calls } = fixture();
     const result = await request(saveBody(changes), { photo: withPhoto ? new File([JPEG], 'a.jpg', { type: 'image/jpeg' }) : null });
     assert.equal(result.status, 403);
-    assert.deepEqual(result.data, { error: '外送紀錄上傳後不可再編輯', code: 'record_locked' });
+    assert.deepEqual(result.data, { error: '外送紀錄上傳後僅供查詢，不可編輯或刪除', code: 'record_locked' });
     assert.deepEqual(calls, []);
   });
 }
@@ -190,7 +190,7 @@ for (const [code, status] of [['40001', 409], ['55000', 403]]) {
     assert.equal(result.status, status);
     assert.deepEqual(calls.find(call => call[0] === 'remove')[1], [calls.find(call => call[0] === 'upload')[1]]);
     assert.equal(JSON.stringify(result.data).includes('internal details'), false);
-    if (code === '55000') assert.deepEqual(result.data, { error: '外送紀錄上傳後不可再編輯', code: 'record_locked' });
+    if (code === '55000') assert.deepEqual(result.data, { error: '外送紀錄上傳後僅供查詢，不可編輯或刪除', code: 'record_locked' });
   });
 }
 test('DB結果不明時保留照片，避免誤刪可能已提交的單據', async () => {
@@ -215,6 +215,21 @@ test('RPC確認重送已有保存時清除本次多餘上傳；清除故障不�
   assert.equal((await request(saveBody(), { photo: new File([JPEG], 'a.jpg', { type: 'image/jpeg' }) })).status, 200);
   assert.deepEqual(calls.find(call => call[0] === 'remove')[1], [calls.find(call => call[0] === 'upload')[1]]);
 });
+test('RPC回傳清理清單也不能刪除任何既有照片', async () => {
+  const committedPath = `1/${ID}/committed.jpg`;
+  for (const retry of [false, true]) {
+    const { request, calls } = fixture({
+      saveRecord: async args => ({ data: {
+        record: { id: args.p_id, ...args.p_record, has_photo: true, version: 1, updated_at: new Date(NOW).toISOString() },
+        photo_path: retry ? committedPath : args.p_photo_path,
+        unused_photo_paths: [committedPath, '1/another-committed-photo.jpg'],
+      }, error: null }),
+    });
+    assert.equal((await request(saveBody(), { photo: new File([JPEG], 'a.jpg', { type: 'image/jpeg' }) })).status, 200);
+    const removals = calls.filter(call => call[0] === 'remove');
+    assert.deepEqual(removals, retry ? [['remove', [calls.find(call => call[0] === 'upload')[1]]]] : []);
+  }
+});
 test('單據簽名使用登入門市查出路徑，只簽五分鐘，不能傳入任意物件路徑', async () => {
   const { request, calls } = fixture();
   assert.equal((await request({ action: 'photo', id: ID }, { token: TOKENS[2] })).status, 200);
@@ -223,13 +238,28 @@ test('單據簽名使用登入門市查出路徑，只簽五分鐘，不能傳�
   assert.equal((await request({ action: 'photo', id: ID, path: '1/secret' })).status, 400);
   assert.equal((await fixture({ photoPath: async () => ({ data: null, error: null }) }).request({ action: 'photo', id: ID })).status, 404);
 });
-test('刪除傳遞門市及版本，資料庫確認成功後才刪照片', async () => {
-  const { request, calls } = fixture({ deleteRecord: async (store, id, version, calls) => { calls.push(['delete', store, id, version]); return { data: { ok: true, photo_path: '1/old.jpg' }, error: null }; } });
-  assert.equal((await request({ action: 'delete', id: ID, expected_version: 3 })).status, 200);
-  assert.deepEqual(calls, [['delete', 1, ID, 3], ['remove', ['1/old.jpg']]]);
-  const failed = fixture({ deleteRecord: async () => ({ data: null, error: { code: '40001' } }) });
-  assert.equal((await failed.request({ action: 'delete', id: ID, expected_version: 3 })).status, 409);
-  assert.equal(failed.calls.length, 0);
+for (const store of [1, 2]) {
+  test(`門市${store}刪除要求回403 record_locked且不碰資料庫或照片`, async () => {
+    const { request, calls } = fixture();
+    for (const expected_version of [1, 3]) {
+      const result = await request({ action: 'delete', id: ID, expected_version }, { token: TOKENS[store] });
+      assert.equal(result.status, 403);
+      assert.deepEqual(result.data, { error: '外送紀錄上傳後僅供查詢，不可編輯或刪除', code: 'record_locked' });
+      assert.deepEqual(calls, []);
+    }
+  });
+}
+test('禁止刪除仍先驗證登入與門市，錯誤請求同樣不碰資料庫或照片', async () => {
+  const { request, calls } = fixture();
+  const body = { action: 'delete', id: ID, expected_version: 1 };
+  assert.equal((await request(body, { token: '' })).status, 401);
+  const denied = await request(body, { token: await sign({ store: 3, admin: false, exp: NOW + 60000 }) });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.data.code, undefined);
+  assert.equal((await request({ ...body, id: '../another' })).status, 400);
+  assert.equal((await request({ ...body, expected_version: 0 })).status, 400);
+  assert.equal((await request({ ...body, store_id: 2 })).status, 400);
+  assert.deepEqual(calls, []);
 });
 test('非既有網站Origin拒絕，OPTIONS可正常通過', async () => {
   const { request, handler, calls } = fixture();

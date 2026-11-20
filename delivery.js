@@ -128,7 +128,7 @@ function syncControls() {
   $('photo-feedback').hidden = !state.photoBusy && !state.photoError;
   $('photo-feedback').className = `photo-feedback${state.photoError ? ' error' : ''}`;
   $('photo-summary').textContent = state.photo
-    ? '照片會隨資料一併上傳，成功後不能更換或移除。'
+    ? '照片會隨資料一併上傳，成功後僅供查看，不能更換或移除。'
     : '每筆可附一張照片，請在本次上傳前選取。未附單據送出後不能補傳。';
 }
 
@@ -218,7 +218,6 @@ function renderRecords() {
     const actionCell = document.createElement('td');
     const actions = element('div', 'record-actions');
     actions.append(row.has_photo ? recordButton('查看單據', 'photo', row, 'photo') : element('span', 'no-photo', '未附單據'));
-    actions.append(recordButton('刪除', 'delete', row, 'danger'));
     actionCell.append(actions);
     tr.append(dateCell, unitCell, courierCell, amountCell, distanceCell, actionCell);
     $('history-body').append(tr);
@@ -226,7 +225,7 @@ function renderRecords() {
   $('table-wrap').hidden = state.records.length === 0;
   $('list-state').hidden = state.records.length > 0;
   $('list-state').className = 'list-state';
-  $('list-state').textContent = '這個月份還沒有外送紀錄。填寫上方資料，就能開始記錄。';
+  $('list-state').textContent = '這個月份還沒有外送紀錄。填寫上方資料即可新增；上傳後僅供查詢。';
   $('pagination').hidden = state.totalCount <= 50;
   $('page-info').textContent = `第 ${state.page + 1}／${Math.max(1, Math.ceil(state.totalCount / 50))} 頁`;
 }
@@ -278,7 +277,7 @@ async function loadList({ initial = false } = {}) {
     $('total-count').textContent = format(data.total_count);
     $('total-amount').textContent = format(data.total_amount);
     $('total-distance').textContent = format(data.total_distance_km);
-    $('history-description').textContent = `${month.replace('-', ' 年 ')} 月 · 統計涵蓋全部 ${format(data.total_count)} 筆紀錄，日期時間皆為台灣時間。已上傳的資料與單據不能再編輯。`;
+    $('history-description').textContent = `${month.replace('-', ' 年 ')} 月 · 統計涵蓋全部 ${format(data.total_count)} 筆紀錄，日期時間皆為台灣時間。已上傳的資料與單據僅供查詢，不能編輯或刪除。`;
     renderRecords();
     return true;
   } catch (error) {
@@ -316,7 +315,7 @@ async function saveRecord(event) {
   const photoNotice = state.photo
     ? '單據照片將一併上傳，之後不能更換或移除。'
     : '本次未附單據；送出後不能補傳照片。';
-  if (!window.confirm(`確認上傳「${validation.value.unit_name}」？\n\n上傳成功後，所有欄位與單據照片都不能再編輯。\n${photoNotice}\n請確認資料無誤後再上傳。`)) return;
+  if (!window.confirm(`確認上傳「${validation.value.unit_name}」？\n\n上傳成功後僅供查詢，所有欄位與單據照片都不能編輯或刪除。\n${photoNotice}\n請確認資料無誤後再上傳。`)) return;
   if (!state.pendingSave) {
     state.pendingSave = {
       action: 'save', ...validation.value, id: state.newId,
@@ -341,30 +340,12 @@ async function saveRecord(event) {
     if (isValidMonth(savedMonth)) { state.month = savedMonth; $('history-month').value = savedMonth; }
     state.page = 0;
     const refreshed = await loadList();
-    if (state.session) setMessage(`外送記錄已上傳並鎖定。${hadPhoto ? '單據照片已一併上傳。' : '本筆未附單據，之後不能補傳。'}${refreshed ? '' : '\n清單暫時無法更新，請稍後按「重新讀取」查看。'}`, refreshed ? '' : 'info');
+    if (state.session) setMessage(`外送記錄已上傳並鎖定，僅供查詢，不能編輯或刪除。${hadPhoto ? '單據照片已一併上傳。' : '本筆未附單據，之後不能補傳。'}${refreshed ? '' : '\n清單暫時無法更新，請稍後按「重新讀取」查看。'}`, refreshed ? '' : 'info');
   } catch (error) {
     if (!handleFailure(error)) {
       if (error.status === 409 || error.status === 403 && error.code === 'record_locked') state.conflict = true;
       setMessage(error.message, 'error');
     }
-  } finally { state.mutating = false; syncControls(); }
-}
-
-async function deleteRecord(row) {
-  if (busy()) return;
-  const date = taipeiDateTime(row.delivered_at).replace('T', ' ');
-  if (!window.confirm(`刪除「${row.unit_name}」\n${date} · ${format(row.amount)} 元\n\n這筆外送紀錄與附上的單據都會移除，確定刪除？`)) return;
-  state.mutating = true;
-  setMessage('正在刪除這筆外送紀錄…', 'info');
-  syncControls();
-  try {
-    const data = await api('delete', { id: row.id, expected_version: row.version });
-    if (data.ok !== true) throw new ApiError('尚無法確認刪除結果，請重新讀取清單確認。');
-    if (state.records.length === 1 && state.page > 0) state.page--;
-    const refreshed = await loadList();
-    if (state.session) setMessage(refreshed ? '外送紀錄已刪除。' : '刪除已完成，清單暫時無法更新，請稍後重新讀取。', refreshed ? '' : 'info');
-  } catch (error) {
-    if (!handleFailure(error)) setMessage(error.status === 409 ? '這筆紀錄已在其他畫面變更，請重新讀取後再確認是否刪除。' : `${error.message}\n若連線中斷，請先重新讀取確認刪除結果。`, 'error');
   } finally { state.mutating = false; syncControls(); }
 }
 
@@ -487,7 +468,6 @@ $('history-body').addEventListener('click', event => {
   if (!button || busy()) return;
   const row = state.records.find(record => record.id === button.dataset.id);
   if (!row) return;
-  if (button.dataset.action === 'delete') void deleteRecord(row);
   if (button.dataset.action === 'photo') void viewPhoto(row);
 });
 $('close-photo').addEventListener('click', closeViewer);
