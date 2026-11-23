@@ -1,5 +1,10 @@
 // Dates in this feature always use Taiwan time, independent of device settings.
 export const ALLOWED_STORES = Object.freeze({ 1: '潮州店(C1)', 2: '木崎(C2)' });
+export const DEFAULT_DELIVERY_ADDRESS = '屏東縣';
+
+export function isCountyPrefixOnly(value) {
+  return typeof value === 'string' && value.replace(/\s/g, '') === DEFAULT_DELIVERY_ADDRESS;
+}
 
 export function taipeiDateTime(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
@@ -39,6 +44,7 @@ export function validateFields(input) {
     if (!text || text.length > max) errors[field] = `請填寫${label}（最多 ${max} 個字）。`;
     value[field] = text;
   }
+  if (!errors.address && isCountyPrefixOnly(value.address)) errors.address = '請在屏東縣後接續填寫鄉鎮市、路名與門牌。';
   value.delivered_at = localDateTimeToISO(input.delivered_at);
   if (!value.delivered_at) errors.delivered_at = '請填寫有效的外送日期與時間。';
   value.amount = readDecimal(input.amount, 99999999.99);

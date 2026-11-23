@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#293c69">
   <meta name="referrer" content="no-referrer">
   <title>外送記錄｜門市叫貨系統</title>
-  <link rel="stylesheet" href="delivery.css?v=20261121-distance1">
-  <script type="module" src="delivery.js?v=20261121-distance1"></script>
+  <link rel="stylesheet" href="delivery.css?v=20261123-attachment1">
+  <script type="module" src="delivery.js?v=20261123-attachment1"></script>
 </head>
 <body>
   <main class="shell">
@@ -34,7 +34,7 @@
         <div class="section-heading">
           <div><span class="eyebrow" id="form-mode">新增外送</span><h2 id="form-title">記下一筆外送</h2></div>
         </div>
-        <p id="upload-lock-note" class="message info">上傳成功後僅供查詢，資料與單據照片不能編輯或刪除。請確認內容後再送出；未附單據的紀錄，上傳後不能補傳照片。</p>
+        <p id="upload-lock-note" class="message info">資料上傳後僅供查詢，不能編輯或刪除。未附單據的紀錄可再補傳一張照片；單據上傳成功後不能更換或移除。</p>
         <div id="message" class="message" role="status" aria-live="polite" hidden></div>
         <div id="conflict" class="message error" role="alert" hidden>
           <strong>這筆資料無法再次上傳。</strong>
@@ -44,7 +44,7 @@
         <form id="delivery-form" novalidate>
           <div class="form-grid">
             <label class="field wide" for="unit-name"><span>外送單位名稱</span><input id="unit-name" name="unit_name" maxlength="100" required autocomplete="organization" placeholder="例如：公司、學校、訂餐人名稱" aria-describedby="unit-name-error"><span class="field-error" id="unit-name-error" hidden></span></label>
-            <label class="field wide" for="address"><span>外送地址</span><textarea id="address" name="address" maxlength="300" rows="2" required autocomplete="street-address" placeholder="請填縣市、鄉鎮、路名與門牌，可加樓層或收件位置" aria-describedby="address-error distance-feedback"></textarea><span class="field-error" id="address-error" hidden></span></label>
+            <label class="field wide" for="address"><span>外送地址</span><textarea id="address" name="address" maxlength="300" rows="2" required autocomplete="street-address" placeholder="請填鄉鎮市、路名與門牌，可加樓層或收件位置" aria-describedby="address-hint address-error distance-feedback">屏東縣</textarea><span id="address-hint" class="field-hint">已預填屏東縣，請接續填寫鄉鎮市與門牌；外縣市可直接修改縣市。</span><span class="field-error" id="address-error" hidden></span></label>
             <label class="field" for="courier"><span>外送人員</span><input id="courier" name="courier" maxlength="60" required autocomplete="off" placeholder="填寫外送人員姓名" aria-describedby="courier-error"><span class="field-error" id="courier-error" hidden></span></label>
             <label class="field" for="delivered-at"><span>外送日期與時間 <small>台灣時間</small></span><input id="delivered-at" name="delivered_at" type="datetime-local" min="1900-01-01T00:00" max="9999-12-31T23:59" step="60" required aria-describedby="delivered-at-error"><span class="field-error" id="delivered-at-error" hidden></span></label>
             <label class="field" for="amount"><span>外送金額</span><span class="input-unit"><input id="amount" name="amount" type="number" min="0" max="99999999.99" step="0.01" inputmode="decimal" required placeholder="0" aria-describedby="amount-error"><span>元</span></span><span class="field-error" id="amount-error" hidden></span></label>
@@ -61,7 +61,7 @@
           </section>
 
           <section class="photo-section" aria-labelledby="photo-title">
-            <div class="photo-heading"><div><h3 id="photo-title">外送單據 <span class="optional">選填</span></h3><p id="photo-summary">每筆可附一張照片，請在本次上傳前選取。</p></div><span class="photo-icon" aria-hidden="true">▧</span></div>
+            <div class="photo-heading"><div><h3 id="photo-title">外送單據 <span class="optional">選填</span></h3><p id="photo-summary">每筆可附一張照片，也可先儲存資料，再從紀錄補傳單據。</p></div><span class="photo-icon" aria-hidden="true">▧</span></div>
             <div class="photo-actions">
               <button type="button" class="button secondary" id="take-photo">拍照</button>
               <button type="button" class="button secondary" id="choose-photo">從相簿選取</button>
@@ -87,7 +87,8 @@
           <article class="summary-card"><h3>外送總金額</h3><p><strong id="total-amount">—</strong><span>元</span></p></article>
           <article class="summary-card"><h3>外送總距離</h3><p><strong id="total-distance">—</strong><span>公里</span></p></article>
         </div>
-        <p id="history-description" class="section-note">統計涵蓋所選月份的全部紀錄。已上傳的資料與單據僅供查詢，不能編輯或刪除。</p>
+        <p id="history-description" class="section-note">統計涵蓋所選月份的全部紀錄。資料不能編輯或刪除；未附單據可補傳一張照片，已有單據僅供查看。</p>
+        <p id="history-message" class="message" role="status" aria-live="polite" hidden></p>
         <div id="list-state" class="list-state" role="status" aria-live="polite">正在讀取外送紀錄…</div>
         <div class="table-wrap" id="table-wrap" hidden>
           <table><caption class="sr-only">外送紀錄，依外送日期時間由新到舊排列</caption><thead><tr><th scope="col">日期與時間</th><th scope="col">外送單位／地址</th><th scope="col">外送人員</th><th scope="col">金額</th><th scope="col">距離</th><th scope="col">單據</th></tr></thead><tbody id="history-body"></tbody></table>
@@ -104,6 +105,21 @@
     <p id="viewer-message" role="status">正在讀取單據…</p>
     <img id="viewer-image" alt="外送單據照片" hidden>
     <button type="button" class="button secondary" id="retry-photo" hidden>重新讀取照片</button>
+  </dialog>
+
+  <dialog id="attach-dialog" class="photo-dialog attachment-dialog" aria-labelledby="attach-title">
+    <div class="viewer-header"><h2 id="attach-title">補傳外送單據</h2><button type="button" class="button secondary" id="close-attachment">關閉</button></div>
+    <p class="attachment-note">下方資料僅供查看。這筆可補傳一張單據照片，上傳成功後不能更換或移除。</p>
+    <dl id="attach-summary" class="attachment-summary"></dl>
+    <form id="attach-form" novalidate>
+      <div id="attach-message" class="message" role="status" aria-live="polite" hidden></div>
+      <div class="photo-actions"><button type="button" class="button secondary" id="attach-take-photo">拍照</button><button type="button" class="button secondary" id="attach-choose-photo">從相簿選取</button><input id="attach-camera-input" type="file" accept="image/*" capture="environment" hidden><input id="attach-gallery-input" type="file" accept="image/*" hidden></div>
+      <p class="photo-note">可使用 JPG、PNG 或 WebP。照片會自動縮小後上傳。</p>
+      <div id="attach-photo-feedback" class="photo-feedback" role="status" aria-live="polite" hidden></div>
+      <div id="attach-preview-wrap" class="photo-preview" hidden><img id="attach-preview" alt="準備補傳的外送單據預覽"><span>尚未確認補傳的照片</span></div>
+      <button type="button" class="text-button" id="clear-attach-photo" hidden>取消照片</button>
+      <div class="attachment-actions"><button type="button" class="button secondary" id="cancel-attach">取消</button><button type="submit" class="button primary" id="confirm-attach" disabled>確認補傳</button></div>
+    </form>
   </dialog>
 </body>
 </html>

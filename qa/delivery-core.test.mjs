@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { taipeiDateTime, localDateTimeToISO, isValidMonth, readDecimal, validateFields, isAllowedSession } from '../delivery-core.mjs';
+import { DEFAULT_DELIVERY_ADDRESS, isCountyPrefixOnly, taipeiDateTime, localDateTimeToISO, isValidMonth, readDecimal, validateFields, isAllowedSession } from '../delivery-core.mjs';
 
 test('Taiwan midnight and year boundary do not depend on the device timezone', () => {
   assert.equal(taipeiDateTime('2026-12-31T16:05:00Z'), '2027-01-01T00:05');
@@ -46,5 +46,19 @@ test('the entry gate only accepts sessions for the two exact branch identifiers'
   for (const store_id of [1, 2]) assert.equal(isAllowedSession({ store_id, token: 'test' }), true);
   for (const session of [null, {}, { store_id: 0, token: 'test' }, { store_id: 3, token: 'test' }, { store_id: 2, token: '' }]) {
     assert.equal(isAllowedSession(session), false);
+  }
+});
+
+test('the Pingtung default is a prefix, not a complete delivery address, and other counties remain valid', () => {
+  assert.equal(DEFAULT_DELIVERY_ADDRESS, '屏東縣');
+  const fields = { unit_name: '餐廳', address: '', courier: '小陳', delivered_at: '2026-12-01T00:01', amount: '0', distance_km: '1.25' };
+  for (const address of ['屏東縣', ' 屏東縣 ', '屏 東 縣\n']) {
+    assert.equal(isCountyPrefixOnly(address), true);
+    assert.equal(validateFields({ ...fields, address }).ok, false);
+    assert.match(validateFields({ ...fields, address }).errors.address, /接續填寫/);
+  }
+  for (const address of ['屏東縣潮州鎮文化路42號', '高雄市三民區建工路1號']) {
+    assert.equal(isCountyPrefixOnly(address), false);
+    assert.equal(validateFields({ ...fields, address }).ok, true);
   }
 });

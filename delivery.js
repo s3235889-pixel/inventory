@@ -1,4 +1,4 @@
-import { ALLOWED_STORES, taipeiDateTime, isValidMonth, validateFields, isAllowedSession } from './delivery-core.mjs?v=20261120';
+import { ALLOWED_STORES, DEFAULT_DELIVERY_ADDRESS, isCountyPrefixOnly, taipeiDateTime, isValidMonth, validateFields, isAllowedSession } from './delivery-core.mjs?v=20261123-attachment1';
 
 const API = 'https://rjetwgrelmvciatouwiw.supabase.co/functions/v1/delivery-api';
 const PHOTO_ORIGIN = 'https://rjetwgrelmvciatouwiw.supabase.co';
@@ -15,6 +15,9 @@ const state = {
   photoVersion: 0, loadVersion: 0, viewerVersion: 0, viewerId: null,
   distanceService: null, distanceVersion: 0, distanceTimer: null, distanceController: null,
   distanceStatus: 'idle', distanceAddress: '', distanceAttemptedAddress: '', distanceResult: null, distanceError: '',
+  attachmentRow: null, attachmentVersion: 0, attachmentPhoto: null, attachmentPhotoURL: '',
+  attachmentPhotoBusy: false, attachmentPhotoError: '', attachmentPending: null,
+  attachmentUploading: false, attachmentLocked: false, attachmentController: null,
 };
 
 class ApiError extends Error {
@@ -36,6 +39,18 @@ function setMessage(message, kind = '') {
   $('message').textContent = message;
   $('message').className = `message ${kind}`.trim();
   $('message').hidden = !message;
+}
+
+function setHistoryMessage(message, kind = '') {
+  $('history-message').textContent = message;
+  $('history-message').className = `message ${kind}`.trim();
+  $('history-message').hidden = !message;
+}
+
+function setAttachmentMessage(message, kind = '') {
+  $('attach-message').textContent = message;
+  $('attach-message').className = `message ${kind}`.trim();
+  $('attach-message').hidden = !message;
 }
 
 function setGate(message, { login = true, retry = false } = {}) {
@@ -92,17 +107,19 @@ function invalidateSession(message) {
   state.distanceService = null;
   clearNewPhoto();
   closeViewer();
+  closeAttachment({ force: true });
   $('delivery-form').reset();
   $('history-body').replaceChildren();
   $('store-name').textContent = '';
   for (const id of ['total-count', 'total-amount', 'total-distance']) $(id).textContent = '—';
   setMessage('');
+  setHistoryMessage('');
   clearErrors();
   setGate(message);
 }
 
 function handleFailure(error) {
-  if (error.status === 403 && error.code === 'record_locked') return false;
+  if (error.status === 403 && ['record_locked', 'photo_locked'].includes(error.code)) return false;
   if (error.status === 401 || error.status === 403) {
     const message = error.message || '門市登入已失效。';
     invalidateSession(error.status === 401
@@ -113,7 +130,7 @@ function handleFailure(error) {
   return false;
 }
 
-function busy() { return state.loading || state.mutating; }
+function busy() { return state.loading || state.mutating || state.attachmentUploading; }
 
 function distancePending() { return state.distanceStatus === 'scheduled' || state.distanceStatus === 'loading'; }
 
@@ -161,14 +178,14 @@ function syncDistanceControls() {
   $('distance-feedback').textContent = message;
   $('distance-feedback').className = `distance-feedback${state.distanceStatus === 'error' ? ' error' : ''}`;
   $('distance-attribution').hidden = !state.distanceResult;
-  $('recalculate-distance').disabled = busy() || !state.loaded || !service?.available || !address || !!state.pendingSave || state.conflict || state.distanceStatus === 'loading';
+  $('recalculate-distance').disabled = busy() || !state.loaded || !service?.available || !address || isCountyPrefixOnly(address) || !!state.pendingSave || state.conflict || state.distanceStatus === 'loading';
   $('manual-distance').disabled = busy() || !state.loaded || !!state.pendingSave || state.conflict;
   $('distance-km').setAttribute('aria-busy', String(distancePending()));
 }
 
 function scheduleDistance() {
   const address = $('address').value.trim();
-  if (busy() || !state.loaded || !state.distanceService?.available || !address || state.pendingSave || state.conflict
+  if (busy() || !state.loaded || !state.distanceService?.available || !address || isCountyPrefixOnly(address) || state.pendingSave || state.conflict
     || distancePending() || state.distanceStatus === 'manual' || state.distanceAttemptedAddress === address) return;
   state.distanceStatus = 'scheduled';
   state.distanceTimer = setTimeout(() => { state.distanceTimer = null; void calculateDistance(); }, 1000);
@@ -205,7 +222,7 @@ async function calculateDistance({ force = false } = {}) {
   state.distanceTimer = null;
   if (state.distanceStatus === 'scheduled') state.distanceStatus = 'idle';
   const address = $('address').value.trim();
-  if (busy() || !state.loaded || !state.distanceService?.available || !address || state.pendingSave || state.conflict
+  if (busy() || !state.loaded || !state.distanceService?.available || !address || isCountyPrefixOnly(address) || state.pendingSave || state.conflict
     || state.distanceStatus === 'loading' || !force && (state.distanceStatus === 'manual' || state.distanceAttemptedAddress === address)) {
     syncControls();
     return;
@@ -271,12 +288,13 @@ function syncControls() {
   $('photo-feedback').className = `photo-feedback${state.photoError ? ' error' : ''}`;
   $('photo-summary').textContent = state.photo
     ? '照片會隨資料一併上傳，成功後僅供查看，不能更換或移除。'
-    : '每筆可附一張照片，請在本次上傳前選取。未附單據送出後不能補傳。';
+    : '每筆可附一張照片，也可先儲存資料，再從紀錄補傳單據。';
   syncDistanceControls();
+  syncAttachmentControls();
 }
 
 function signature() {
-  return JSON.stringify([...Object.values(fields).map(id => $(id).value), state.photoVersion]);
+  return JSON.stringify([...Object.entries(fields).map(([field, id]) => field === 'address' && isCountyPrefixOnly($(id).value) ? DEFAULT_DELIVERY_ADDRESS : $(id).value), state.photoVersion]);
 }
 
 function markChanged() {
@@ -293,6 +311,8 @@ function resetForm({ courier = '' } = {}) {
   state.pendingSave = null;
   state.conflict = false;
   $('delivery-form').reset();
+  $('address').value = DEFAULT_DELIVERY_ADDRESS;
+  state.distanceAddress = DEFAULT_DELIVERY_ADDRESS;
   $('courier').value = courier;
   $('delivered-at').value = taipeiDateTime();
   $('form-mode').textContent = '新增外送';
@@ -318,14 +338,16 @@ async function api(action, body = {}, form = null, { signal, timeoutMs } = {}) {
       body: form || JSON.stringify({ action, ...body }), signal: controller.signal,
     });
   } catch (error) {
-    throw new ApiError(action === 'save'
+    throw new ApiError(action === 'attach_photo'
+      ? '連線中斷，尚無法確認補傳結果。這張照片已保留，請按「重試補傳」，系統會避免重複上傳。'
+      : action === 'save'
       ? '連線中斷，尚無法確認這次儲存結果。輸入與照片已保留，請保持內容不變並再按儲存，系統會避免重複記錄。'
       : error.name === 'AbortError' ? action === 'distance' ? '距離計算逾時，尚未填入公里數。' : '連線逾時，請檢查網路後重試。' : '無法連上雲端，請檢查網路後重試。');
   } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
   if (!sameSession() || state.session.token !== sessionToken) throw new ApiError('門市登入已變更，請回叫貨系統重新開啟外送記錄。', 403);
   let data;
   try { data = await response.json(); }
-  catch { throw new ApiError(action === 'save' ? '伺服器回應不完整，尚無法確認儲存結果。請保留輸入並重試。' : '伺服器回應不完整，請稍後再試。', response.status); }
+  catch { throw new ApiError(action === 'attach_photo' ? '伺服器回應不完整，尚無法確認補傳結果。這張照片已保留，請按「重試補傳」。' : action === 'save' ? '伺服器回應不完整，尚無法確認儲存結果。請保留輸入並重試。' : '伺服器回應不完整，請稍後再試。', response.status); }
   if (!sameSession()) throw new ApiError('門市登入已變更，請回叫貨系統重新開啟外送記錄。', 403);
   if (!response.ok) throw new ApiError(data.error || '操作未完成，請稍後再試。', response.status, data.code);
   return data;
@@ -364,7 +386,8 @@ function renderRecords() {
     distanceCell.dataset.label = '距離';
     const actionCell = document.createElement('td');
     const actions = element('div', 'record-actions');
-    actions.append(row.has_photo ? recordButton('查看單據', 'photo', row, 'photo') : element('span', 'no-photo', '未附單據'));
+    if (row.has_photo) actions.append(recordButton('查看單據', 'photo', row, 'photo'));
+    else actions.append(element('span', 'no-photo', '未附單據'), recordButton('補傳單據', 'attach', row, 'photo'));
     actionCell.append(actions);
     tr.append(dateCell, unitCell, courierCell, amountCell, distanceCell, actionCell);
     $('history-body').append(tr);
@@ -425,7 +448,7 @@ async function loadList({ initial = false } = {}) {
     $('total-count').textContent = format(data.total_count);
     $('total-amount').textContent = format(data.total_amount);
     $('total-distance').textContent = format(data.total_distance_km);
-    $('history-description').textContent = `${month.replace('-', ' 年 ')} 月 · 統計涵蓋全部 ${format(data.total_count)} 筆紀錄，日期時間皆為台灣時間。已上傳的資料與單據僅供查詢，不能編輯或刪除。`;
+    $('history-description').textContent = `${month.replace('-', ' 年 ')} 月 · 統計涵蓋全部 ${format(data.total_count)} 筆紀錄，日期時間皆為台灣時間。資料不能編輯或刪除；未附單據可補傳一張照片，已有單據僅供查看。`;
     renderRecords();
     return true;
   } catch (error) {
@@ -462,8 +485,8 @@ async function saveRecord(event) {
   }
   const photoNotice = state.photo
     ? '單據照片將一併上傳，之後不能更換或移除。'
-    : '本次未附單據；送出後不能補傳照片。';
-  if (!window.confirm(`確認上傳「${validation.value.unit_name}」？\n\n上傳成功後僅供查詢，所有欄位與單據照片都不能編輯或刪除。\n${photoNotice}\n請確認資料無誤後再上傳。`)) return;
+    : '本次未附單據；之後可從紀錄補傳一張照片，成功後不能更換或移除。';
+  if (!window.confirm(`確認上傳「${validation.value.unit_name}」？\n\n資料上傳後僅供查詢，所有欄位都不能編輯或刪除。\n${photoNotice}\n請確認資料無誤後再上傳。`)) return;
   cancelDistanceWork();
   if (!state.pendingSave) {
     state.pendingSave = {
@@ -484,12 +507,15 @@ async function saveRecord(event) {
       throw new ApiError('尚未收到完整的儲存確認，輸入與照片已保留。請保持內容不變並再按儲存確認。');
     }
     const hadPhoto = !!state.photo;
+    const photoMessage = hadPhoto
+      ? '單據照片已一併上傳，不能更換或移除。'
+      : data.record.has_photo === true ? '這筆已有單據，可從紀錄查看，不能更換或移除。' : '本筆未附單據，可從紀錄補傳一張照片。';
     const savedMonth = taipeiDateTime(data.record.delivered_at).slice(0, 7);
     resetForm({ courier: payload.courier });
     if (isValidMonth(savedMonth)) { state.month = savedMonth; $('history-month').value = savedMonth; }
     state.page = 0;
     const refreshed = await loadList();
-    if (state.session) setMessage(`外送記錄已上傳並鎖定，僅供查詢，不能編輯或刪除。${hadPhoto ? '單據照片已一併上傳。' : '本筆未附單據，之後不能補傳。'}${refreshed ? '' : '\n清單暫時無法更新，請稍後按「重新讀取」查看。'}`, refreshed ? '' : 'info');
+    if (state.session) setMessage(`外送記錄已上傳並鎖定，資料僅供查詢，不能編輯或刪除。${photoMessage}${refreshed ? '' : '\n清單暫時無法更新，請稍後按「重新讀取」查看。'}`, refreshed ? '' : 'info');
   } catch (error) {
     if (!handleFailure(error)) {
       if (error.status === 409 || error.status === 403 && error.code === 'record_locked') state.conflict = true;
@@ -498,14 +524,7 @@ async function saveRecord(event) {
   } finally { state.mutating = false; syncControls(); }
 }
 
-async function pickPhoto(file) {
-  if (!file || busy()) return;
-  clearNewPhoto();
-  const version = state.photoVersion;
-  state.photoBusy = true;
-  state.pendingSave = null;
-  state.dirty = true;
-  syncControls();
+async function prepareReceiptPhoto(file, isCurrent) {
   let originalURL = '';
   try {
     if (file.size === 0 || file.size > 30 * 1024 * 1024) throw new Error('請選擇 30MB 以內且內容完整的照片。');
@@ -515,7 +534,7 @@ async function pickPhoto(file) {
     image.src = originalURL;
     await image.decode();
     if (!image.width || !image.height) throw new Error('這張照片無法讀取。');
-    if (version !== state.photoVersion || !state.session) return;
+    if (!isCurrent()) return null;
     const scale = Math.min(1, 2400 / Math.max(image.width, image.height));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(image.width * scale));
@@ -526,8 +545,23 @@ async function pickPhoto(file) {
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
     const photo = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
-    if (version !== state.photoVersion || !state.session) return;
+    if (!isCurrent()) return null;
     if (!photo || photo.size === 0 || photo.size > 8 * 1024 * 1024) throw new Error('照片縮小後仍超過 8MB，請換較小照片或截圖。');
+    return photo;
+  } finally { if (originalURL) URL.revokeObjectURL(originalURL); }
+}
+
+async function pickPhoto(file) {
+  if (!file || busy()) return;
+  clearNewPhoto();
+  const version = state.photoVersion;
+  state.photoBusy = true;
+  state.pendingSave = null;
+  state.dirty = true;
+  syncControls();
+  try {
+    const photo = await prepareReceiptPhoto(file, () => version === state.photoVersion && !!state.session);
+    if (!photo) return;
     state.photo = photo;
     state.photoURL = URL.createObjectURL(photo);
     $('photo-preview').src = state.photoURL;
@@ -535,8 +569,143 @@ async function pickPhoto(file) {
   } catch (error) {
     if (version === state.photoVersion) state.photoError = `照片尚未加入：${error.message} 若是 HEIC 照片，請先截圖或轉為 JPG 後再選取。`;
   } finally {
-    if (originalURL) URL.revokeObjectURL(originalURL);
     if (version === state.photoVersion) { state.photoBusy = false; state.dirty = true; syncControls(); }
+  }
+}
+
+function clearAttachmentPhoto() {
+  state.attachmentVersion++;
+  state.attachmentPhoto = null;
+  state.attachmentPhotoBusy = false;
+  state.attachmentPhotoError = '';
+  state.attachmentPending = null;
+  if (state.attachmentPhotoURL) URL.revokeObjectURL(state.attachmentPhotoURL);
+  state.attachmentPhotoURL = '';
+  $('attach-preview').removeAttribute('src');
+  $('attach-camera-input').value = '';
+  $('attach-gallery-input').value = '';
+}
+
+function syncAttachmentControls() {
+  const blocked = state.loading || state.mutating || state.attachmentUploading;
+  const photoLocked = blocked || !!state.attachmentPending || state.attachmentLocked;
+  for (const id of ['attach-take-photo', 'attach-choose-photo', 'attach-camera-input', 'attach-gallery-input', 'clear-attach-photo']) $(id).disabled = photoLocked;
+  $('confirm-attach').disabled = blocked || !state.attachmentRow || !state.attachmentPhoto || state.attachmentPhotoBusy || !!state.attachmentPhotoError || state.attachmentLocked;
+  $('confirm-attach').textContent = state.attachmentUploading ? '補傳中…' : state.attachmentLocked ? '無法再補傳' : state.attachmentPending ? '重試補傳' : '確認補傳';
+  $('attach-preview-wrap').hidden = !state.attachmentPhotoURL;
+  $('clear-attach-photo').hidden = !state.attachmentPhoto && !state.attachmentPhotoBusy && !state.attachmentPhotoError;
+  $('attach-photo-feedback').textContent = state.attachmentPhotoBusy ? '正在整理照片，完成後即可補傳…' : state.attachmentPhotoError;
+  $('attach-photo-feedback').className = `photo-feedback${state.attachmentPhotoError ? ' error' : ''}`;
+  $('attach-photo-feedback').hidden = !state.attachmentPhotoBusy && !state.attachmentPhotoError;
+  $('attach-form').setAttribute('aria-busy', String(state.attachmentUploading || state.attachmentPhotoBusy));
+}
+
+function closeAttachment({ force = false } = {}) {
+  if (!force && (state.attachmentPhoto || state.attachmentPhotoBusy || state.attachmentPending || state.attachmentUploading)) {
+    const question = state.attachmentUploading
+      ? '補傳仍在進行，關閉不一定能取消伺服器上傳。關閉後請重新讀取紀錄確認，確定關閉？'
+      : state.attachmentPending && !state.attachmentLocked
+        ? '這次補傳結果尚未確認。關閉會清除待傳照片，請重新讀取紀錄確認；確定關閉？'
+        : '關閉會取消這張尚未補傳的照片，確定關閉？';
+    if (!window.confirm(question)) return false;
+  }
+  state.attachmentController?.abort();
+  state.attachmentController = null;
+  clearAttachmentPhoto();
+  state.attachmentRow = null;
+  state.attachmentUploading = false;
+  state.attachmentLocked = false;
+  $('attach-summary').replaceChildren();
+  setAttachmentMessage('');
+  if (typeof $('attach-dialog').close === 'function') $('attach-dialog').close();
+  else $('attach-dialog').removeAttribute('open');
+  syncControls();
+  scheduleDistance();
+  return true;
+}
+
+function openAttachment(row) {
+  if (busy() || !row || row.has_photo) return;
+  if (state.attachmentRow && !closeAttachment()) return;
+  clearAttachmentPhoto();
+  state.attachmentRow = { ...row };
+  state.attachmentLocked = false;
+  setAttachmentMessage('');
+  setHistoryMessage('');
+  $('attach-summary').replaceChildren();
+  for (const [label, value] of [
+    ['外送單位', row.unit_name], ['外送地址', row.address], ['外送人員', row.courier],
+    ['日期與時間', taipeiDateTime(row.delivered_at).replace('T', ' ')], ['金額', `${format(row.amount)} 元`], ['距離', `${format(row.distance_km)} 公里`],
+  ]) {
+    const item = element('div', 'attachment-detail');
+    item.append(element('dt', '', label), element('dd', '', value));
+    $('attach-summary').append(item);
+  }
+  syncControls();
+  if (typeof $('attach-dialog').showModal === 'function') $('attach-dialog').showModal();
+  else $('attach-dialog').setAttribute('open', '');
+}
+
+async function pickAttachmentPhoto(file) {
+  if (!file || busy() || !state.attachmentRow || state.attachmentPending || state.attachmentLocked) return;
+  clearAttachmentPhoto();
+  const version = state.attachmentVersion;
+  state.attachmentPhotoBusy = true;
+  setAttachmentMessage('');
+  syncAttachmentControls();
+  try {
+    const photo = await prepareReceiptPhoto(file, () => version === state.attachmentVersion && !!state.attachmentRow && !!state.session);
+    if (!photo) return;
+    state.attachmentPhoto = photo;
+    state.attachmentPhotoURL = URL.createObjectURL(photo);
+    $('attach-preview').src = state.attachmentPhotoURL;
+  } catch (error) {
+    if (version === state.attachmentVersion) state.attachmentPhotoError = `照片尚未加入：${error.message} 若是 HEIC 照片，請先截圖或轉為 JPG 後再選取。`;
+  } finally {
+    if (version === state.attachmentVersion) { state.attachmentPhotoBusy = false; syncAttachmentControls(); }
+  }
+}
+
+async function attachPhoto(event) {
+  event.preventDefault();
+  if (busy() || !state.attachmentRow || !state.attachmentPhoto || state.attachmentPhotoBusy || state.attachmentPhotoError || state.attachmentLocked) return;
+  if (!state.attachmentPending) state.attachmentPending = {
+    action: 'attach_photo', id: state.attachmentRow.id, request_id: crypto.randomUUID(), expected_version: state.attachmentRow.version,
+  };
+  const payload = state.attachmentPending;
+  const version = ++state.attachmentVersion;
+  const controller = new AbortController();
+  state.attachmentController = controller;
+  state.attachmentUploading = true;
+  const form = new FormData();
+  form.set('payload', JSON.stringify(payload));
+  form.set('photo', state.attachmentPhoto, 'delivery-receipt.jpg');
+  setAttachmentMessage('正在補傳單據，請稍候…', 'info');
+  syncControls();
+  try {
+    const data = await api('attach_photo', {}, form, { signal: controller.signal, timeoutMs: 45000 });
+    if (version !== state.attachmentVersion) return;
+    if (!data.record || data.record.id !== payload.id || data.record.has_photo !== true || !Number.isInteger(data.record.version) || data.record.version <= payload.expected_version) {
+      throw new ApiError('尚未收到完整的補傳確認，照片已保留。請按「重試補傳」。');
+    }
+    state.records = state.records.map(row => row.id === payload.id ? data.record : row);
+    renderRecords();
+    const unitName = data.record.unit_name;
+    closeAttachment({ force: true });
+    setHistoryMessage(`「${unitName}」的單據已補傳並鎖定，成功後不能更換或移除。外送資料維持不變。`);
+  } catch (error) {
+    if (version !== state.attachmentVersion || handleFailure(error)) return;
+    state.attachmentLocked = ['photo_locked', 'record_locked'].includes(error.code) || [404, 409].includes(error.status);
+    setAttachmentMessage(state.attachmentLocked
+      ? `${error.message}\n這張待傳照片仍保留在視窗。請關閉後重新讀取紀錄確認。`
+      : `${error.message}${error.message.includes('已保留') ? '' : '\n照片已保留，請按「重試補傳」。'}`, 'error');
+  } finally {
+    if (version === state.attachmentVersion) {
+      state.attachmentUploading = false;
+      state.attachmentController = null;
+      syncControls();
+      scheduleDistance();
+    }
   }
 }
 
@@ -606,6 +775,16 @@ $('take-photo').addEventListener('click', () => $('camera-input').click());
 $('choose-photo').addEventListener('click', () => $('gallery-input').click());
 for (const id of ['camera-input', 'gallery-input']) $(id).addEventListener('change', () => { void pickPhoto($(id).files?.[0]); });
 $('clear-photo').addEventListener('click', () => { clearNewPhoto(); markChanged(); });
+$('attach-form').addEventListener('submit', attachPhoto);
+$('attach-take-photo').addEventListener('click', () => $('attach-camera-input').click());
+$('attach-choose-photo').addEventListener('click', () => $('attach-gallery-input').click());
+for (const id of ['attach-camera-input', 'attach-gallery-input']) $(id).addEventListener('change', () => { void pickAttachmentPhoto($(id).files?.[0]); });
+$('clear-attach-photo').addEventListener('click', () => {
+  if (busy() || state.attachmentPending || state.attachmentLocked) return;
+  clearAttachmentPhoto(); setAttachmentMessage(''); syncAttachmentControls();
+});
+for (const id of ['close-attachment', 'cancel-attach']) $(id).addEventListener('click', () => { closeAttachment(); });
+$('attach-dialog').addEventListener('cancel', event => { event.preventDefault(); closeAttachment(); });
 $('reload-conflict').addEventListener('click', () => {
   if (busy() || !confirmDiscard('捨棄畫面上的草稿與待傳照片，重新讀取雲端紀錄？')) return;
   resetForm(); setMessage(''); void loadList();
@@ -626,6 +805,7 @@ $('history-body').addEventListener('click', event => {
   const row = state.records.find(record => record.id === button.dataset.id);
   if (!row) return;
   if (button.dataset.action === 'photo') void viewPhoto(row);
+  if (button.dataset.action === 'attach') openAttachment(row);
 });
 $('close-photo').addEventListener('click', closeViewer);
 $('photo-dialog').addEventListener('cancel', event => { event.preventDefault(); closeViewer(); });
@@ -635,7 +815,7 @@ $('retry-photo').addEventListener('click', () => {
 });
 
 window.addEventListener('beforeunload', event => {
-  if (state.dirty || state.mutating || state.photoBusy) { event.preventDefault(); event.returnValue = ''; }
+  if (state.dirty || state.mutating || state.photoBusy || state.attachmentPhoto || state.attachmentPhotoBusy || state.attachmentUploading) { event.preventDefault(); event.returnValue = ''; }
 });
 document.querySelectorAll('a[href="index.html"]').forEach(link => link.addEventListener('click', event => {
   if (state.mutating) { event.preventDefault(); return; }

@@ -53,7 +53,7 @@ async function harness(options = {}) {
   w.URL.revokeObjectURL = () => {};
   if (session) w.sessionStorage.setItem('receipt-session', JSON.stringify(session));
   const h = {
-    dom, w, core, month, session, errors, confirmations, requests: [], records: options.records || [],
+    dom, w, core, month, session, errors, confirmations, requests: [], uploads: [], attachments: new Map(), records: options.records || [],
     handler: options.handler || null, decode: () => Promise.resolve(),
     distanceService: options.distanceService || { available: options.distanceAvailable === true, origin_address: origins[session?.store_id], mode: 'scooter', provider: 'geoapify' },
     $: id => w.document.getElementById(id),
@@ -61,6 +61,7 @@ async function harness(options = {}) {
     click(id) { this.$(id).click(); },
     blur(id) { this.$(id).dispatchEvent(new w.Event('blur')); },
     submit() { this.$('delivery-form').dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true })); },
+    submitAttachment() { this.$('attach-form').dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true })); },
     fill() {
       this.set('unit-name', ' 潮州國小 '); this.set('address', '屏東縣潮州鎮中山路1號'); this.set('courier', '小陳');
       this.set('delivered-at', `${month}-01T00:05`); this.set('amount', '600.50'); this.set('distance-km', '2.35');
@@ -70,6 +71,14 @@ async function harness(options = {}) {
       Object.defineProperty(this.$('gallery-input'), 'files', { value: [file], configurable: true });
       this.$('gallery-input').dispatchEvent(new w.Event('change', { bubbles: true }));
     },
+    attachmentPhoto(name = 'later-receipt.jpg', type = 'image/jpeg') {
+      const file = new w.File(['attachment photo bytes'], name, { type });
+      Object.defineProperty(this.$('attach-gallery-input'), 'files', { value: [file], configurable: true });
+      this.$('attach-gallery-input').dispatchEvent(new w.Event('change', { bubbles: true }));
+    },
+    photoBytes(photo) { return new Promise((resolve, reject) => {
+      const reader = new w.FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(photo);
+    }); },
     async ready() { await waitFor(() => !this.$('workspace').hidden && !this.$('history-month').disabled, 'Workspace did not load'); },
     async idle() { await waitFor(() => !this.$('history-month').disabled, 'UI stayed busy'); },
     close() { dom.window.close(); },
@@ -91,6 +100,18 @@ async function harness(options = {}) {
         this.records = [record, ...this.records];
         return response(200, { record });
       }
+      if (body.action === 'attach_photo') {
+        const old = this.records.find(row => row.id === body.id);
+        if (!old) return response(404, { error: '找不到這筆紀錄' });
+        if (this.attachments.get(body.id) === body.request_id) return response(200, { record: old });
+        if (old.has_photo) return response(403, { error: '這筆紀錄已有單據，不能更換', code: 'photo_locked' });
+        if (old.version !== body.expected_version) return response(409, { error: '紀錄狀態已改變' });
+        if (!photo) return response(400, { error: '請選取照片' });
+        const record = { ...old, version: old.version + 1, has_photo: true, updated_at: new Date().toISOString() };
+        this.records = this.records.map(row => row.id === body.id ? record : row);
+        this.attachments.set(body.id, body.request_id);
+        return response(200, { record });
+      }
       if (body.action === 'photo') return response(200, { url: 'https://rjetwgrelmvciatouwiw.supabase.co/storage/v1/object/sign/delivery-photos/1/photo.jpg?token=fixture' });
       return response(400, { error: 'Unsupported' });
     },
@@ -105,6 +126,7 @@ async function harness(options = {}) {
     const body = multipart ? JSON.parse(init.body.get('payload')) : JSON.parse(init.body);
     const photo = multipart ? init.body.get('photo') : null;
     h.requests.push({ ...clone(body), hasUpload: !!photo, uploadType: photo?.type });
+    if (photo) h.uploads.push({ action: body.action, photo });
     return h.handler ? h.handler(body, h, photo, init.signal) : h.defaultResponse(body, photo);
   };
   new vm.Script(source, { filename: 'delivery.js' }).runInContext(dom.getInternalVMContext());
@@ -161,12 +183,13 @@ test('saving confirms the permanent lock and creates a new record with explicit 
     assert.equal(h.$('courier').value, '小陳');
     assert.equal(h.$('total-count').textContent, '1');
     assert.match(h.$('message').textContent, /已上傳並鎖定/);
-    assert.match(h.confirmations[0], /上傳成功後僅供查詢，所有欄位與單據照片都不能編輯或刪除/);
-    assert.match(h.confirmations[0], /本次未附單據；送出後不能補傳照片/);
+    assert.match(h.confirmations[0], /資料上傳後僅供查詢，所有欄位都不能編輯或刪除/);
+    assert.match(h.confirmations[0], /本次未附單據；之後可從紀錄補傳一張照片/);
     assert.equal(h.$('history-body').querySelector('[data-action="edit"]'), null);
     assert.equal(h.$('history-body').querySelector('[data-action="delete"]'), null);
     assert.match(h.$('message').textContent, /僅供查詢，不能編輯或刪除/);
-    assert.match(h.$('history-description').textContent, /已上傳的資料與單據僅供查詢，不能編輯或刪除/);
+    assert.match(h.$('history-description').textContent, /資料不能編輯或刪除；未附單據可補傳一張照片/);
+    assert.equal(h.$('address').value, '屏東縣');
   } finally { h.close(); }
 });
 
@@ -347,7 +370,7 @@ test('monthly totals cover all pages and user text remains inert', async () => {
   } finally { h.close(); }
 });
 
-test('records without receipts remain query-only with no deletion or photo upload actions', async () => {
+test('records without receipts permit attachment without exposing editing or deletion', async () => {
   const h = await harness();
   try {
     await h.ready(); assert.match(h.$('list-state').textContent, /上傳後僅供查詢/);
@@ -355,10 +378,10 @@ test('records without receipts remain query-only with no deletion or photo uploa
     const saved = clone(h.records);
     h.click('refresh'); await h.idle();
     assert.equal(h.$('history-body').children.length, 2);
-    assert.equal(h.$('history-body').querySelector('button'), null);
+    assert.deepEqual(Array.from(h.$('history-body').querySelectorAll('button'), button => button.dataset.action), ['attach', 'attach']);
     assert.equal(h.$('history-body').querySelectorAll('.no-photo').length, 2);
     assert.equal(h.w.document.querySelector('thead th:last-child').textContent, '單據');
-    assert.match(h.$('upload-lock-note').textContent, /上傳成功後僅供查詢/);
+    assert.match(h.$('upload-lock-note').textContent, /資料上傳後僅供查詢/);
     assert.match(h.$('upload-lock-note').textContent, /不能編輯或刪除/);
     h.click('refresh'); await h.idle();
     assert.deepEqual(h.records, saved); assert.equal(h.$('total-count').textContent, '2');
@@ -535,7 +558,7 @@ test('a late distance response cannot fill the blank form after a successful upl
     await h.ready(); h.fill(); h.set('address', '屏東縣潮州鎮中山路8號'); h.blur('address');
     h.click('manual-distance'); h.set('distance-km', '4.20'); h.submit(); await h.idle();
     route.resolve(h.defaultResponse(routeBody)); await new Promise(resolve => setTimeout(resolve, 15));
-    assert.equal(h.$('unit-name').value, ''); assert.equal(h.$('address').value, ''); assert.equal(h.$('distance-km').value, '');
+    assert.equal(h.$('unit-name').value, ''); assert.equal(h.$('address').value, '屏東縣'); assert.equal(h.$('distance-km').value, '');
     assert.equal(h.$('distance-attribution').hidden, true); assert.equal(h.records[0].distance_km, 4.2);
     assert.equal(h.$('history-body').querySelector('[data-action="edit"], [data-action="delete"]'), null);
   } finally { h.close(); }
@@ -562,5 +585,202 @@ test('session changes invalidate in-flight routes and genuine distance authoriza
     await waitFor(() => denied.$('workspace').hidden);
     assert.equal(denied.w.sessionStorage.getItem('receipt-session'), null); assert.equal(denied.$('distance-km').value, '');
     assert.match(denied.$('access-message').textContent, /門市驗證失敗/);
+  } finally { denied.close(); }
+});
+
+test('the real Pingtung address default is clean, does not geocode, and needs a destination before saving', async () => {
+  const h = await harness({ distanceAvailable: true });
+  const canLeave = () => { const event = new h.w.Event('beforeunload', { cancelable: true }); h.w.dispatchEvent(event); return !event.defaultPrevented; };
+  try {
+    await h.ready(); assert.equal(h.$('address').value, '屏東縣'); assert.equal(canLeave(), true);
+    h.blur('address'); h.click('recalculate-distance');
+    await new Promise(resolve => setTimeout(resolve, 1050));
+    assert.equal(h.requests.filter(r => r.action === 'distance').length, 0);
+    h.set('address', ' 屏東縣 '); assert.equal(canLeave(), true);
+    h.fill(); h.set('address', '屏東縣'); h.set('distance-km', '1.20'); h.submit();
+    assert.equal(h.requests.filter(r => r.action === 'save').length, 0);
+    assert.match(h.$('address-error').textContent, /接續填寫鄉鎮市/);
+    h.set('address', '高雄市三民區建工路1號'); h.set('distance-km', '25.30'); h.submit(); await h.idle();
+    assert.equal(h.records[0].address, '高雄市三民區建工路1號');
+    assert.equal(h.$('address').value, '屏東縣'); assert.equal(canLeave(), true);
+    assert.equal(h.$('recalculate-distance').disabled, true);
+  } finally { h.close(); }
+});
+
+test('attaching a receipt uses a separate read-only summary and preserves the new-record draft', async () => {
+  const h = await harness();
+  try {
+    await h.ready(); const row = makeRow(h.month, { address: '高雄市三民區建工路1號' }); h.records = [row]; h.click('refresh'); await h.idle();
+    h.fill(); h.photo(); await waitFor(() => !h.$('save').disabled);
+    const draftPhoto = h.$('photo-preview').src;
+    h.w.document.querySelector('[data-action="attach"]').click();
+    assert.equal(h.$('attach-dialog').open, true);
+    assert.match(h.$('attach-summary').textContent, /高雄市三民區建工路1號/);
+    assert.equal(h.$('attach-summary').querySelector('input, textarea, select'), null);
+    assert.equal(h.$('unit-name').value, ' 潮州國小 '); assert.equal(h.$('address').value, '屏東縣潮州鎮中山路1號');
+    h.attachmentPhoto(); await waitFor(() => !h.$('confirm-attach').disabled); h.submitAttachment(); await h.idle();
+    const sent = h.requests.find(request => request.action === 'attach_photo');
+    const { hasUpload, uploadType, ...payload } = sent;
+    assert.deepEqual(Object.keys(payload).sort(), ['action', 'expected_version', 'id', 'request_id']);
+    assert.equal(payload.id, row.id); assert.equal(payload.expected_version, 1); assert.equal(hasUpload, true); assert.equal(uploadType, 'image/jpeg');
+    assert.equal(h.$('attach-dialog').open, false);
+    assert.equal(h.$('unit-name').value, ' 潮州國小 '); assert.equal(h.$('photo-preview').src, draftPhoto);
+    assert.equal(h.$('amount').value, '600.50'); assert.equal(h.$('address').value, '屏東縣潮州鎮中山路1號');
+    for (const field of ['unit_name', 'address', 'courier', 'delivered_at', 'amount', 'distance_km']) assert.equal(h.records[0][field], row[field]);
+    assert.equal(h.records[0].version, 2); assert.equal(h.records[0].has_photo, true);
+    assert.deepEqual(Array.from(h.$('history-body').querySelectorAll('button'), button => button.dataset.action), ['photo']);
+    assert.match(h.$('history-message').textContent, /單據已補傳並鎖定/);
+    assert.equal(h.$('total-count').textContent, '1'); assert.equal(h.requests.filter(request => request.action === 'save').length, 0);
+  } finally { h.close(); }
+});
+
+test('an attachment whose response was lost retries the same ID, version and bytes without allowing replacement', async () => {
+  let attachCalls = 0;
+  const h = await harness({ handler: (body, h, photo) => {
+    if (body.action === 'attach_photo' && ++attachCalls === 1) { h.defaultResponse(body, photo); return Promise.reject(new Error('response lost')); }
+    return h.defaultResponse(body, photo);
+  } });
+  try {
+    await h.ready(); h.records = [makeRow(h.month)]; h.click('refresh'); await h.idle();
+    h.w.document.querySelector('[data-action="attach"]').click(); h.attachmentPhoto();
+    await waitFor(() => !h.$('confirm-attach').disabled); const preview = h.$('attach-preview').src;
+    h.submitAttachment(); await h.idle();
+    assert.match(h.$('attach-message').textContent, /尚無法確認補傳結果/);
+    assert.equal(h.$('attach-preview').src, preview); assert.equal(h.$('confirm-attach').textContent, '重試補傳');
+    assert.equal(h.$('attach-choose-photo').disabled, true); assert.equal(h.$('clear-attach-photo').disabled, true);
+    h.attachmentPhoto('replacement.jpg'); h.click('clear-attach-photo'); assert.equal(h.$('attach-preview').src, preview);
+    h.w.confirm = () => false; h.click('close-attachment'); assert.equal(h.$('attach-dialog').open, true);
+    h.submitAttachment(); await h.idle();
+    const attempts = h.requests.filter(request => request.action === 'attach_photo');
+    assert.equal(attempts.length, 2); assert.deepEqual(attempts[1], attempts[0]);
+    const uploads = h.uploads.filter(upload => upload.action === 'attach_photo');
+    assert.equal(await h.photoBytes(uploads[1].photo), await h.photoBytes(uploads[0].photo));
+    assert.equal(h.records[0].version, 2); assert.equal(h.$('attach-dialog').open, false);
+    assert.equal(h.$('history-body').querySelector('[data-action="attach"]'), null);
+  } finally { h.close(); }
+});
+
+test('retrying an uncertain new record after its receipt was attached reports the stored photo correctly', async () => {
+  let saveCalls = 0;
+  const h = await harness({ handler: (body, h, photo) => {
+    if (body.action === 'save' && ++saveCalls === 1) { h.defaultResponse(body, photo); return Promise.reject(new Error('response lost')); }
+    return h.defaultResponse(body, photo);
+  } });
+  try {
+    await h.ready(); h.fill(); h.submit(); await h.idle();
+    h.click('refresh'); await h.idle(); h.w.document.querySelector('[data-action="attach"]').click(); h.attachmentPhoto();
+    await waitFor(() => !h.$('confirm-attach').disabled); h.submitAttachment(); await h.idle();
+    assert.equal(h.$('unit-name').value, ' 潮州國小 ');
+    h.submit(); await h.idle();
+    const attempts = h.requests.filter(request => request.action === 'save');
+    assert.equal(attempts[0].request_id, attempts[1].request_id); assert.equal(attempts[0].id, attempts[1].id);
+    assert.match(h.$('message').textContent, /這筆已有單據，可從紀錄查看/);
+    assert.doesNotMatch(h.$('message').textContent, /本筆未附單據/);
+    assert.equal(h.$('history-body').querySelector('[data-action="attach"]'), null);
+  } finally { h.close(); }
+});
+
+test('photo locks and version conflicts keep the selected photo and session without unlocking replacement', async () => {
+  for (const [status, code] of [[403, 'photo_locked'], [409, 'version_conflict']]) {
+    const h = await harness({ handler: (body, h, photo) => body.action === 'attach_photo'
+      ? response(status, { code, error: '這筆紀錄已有單據或狀態已改變' }) : h.defaultResponse(body, photo) });
+    try {
+      await h.ready(); h.records = [makeRow(h.month)]; h.click('refresh'); await h.idle();
+      h.w.document.querySelector('[data-action="attach"]').click(); h.attachmentPhoto();
+      await waitFor(() => !h.$('confirm-attach').disabled); const preview = h.$('attach-preview').src;
+      h.submitAttachment(); await h.idle();
+      assert.equal(h.$('workspace').hidden, false); assert.equal(h.$('attach-dialog').open, true);
+      assert.equal(h.$('attach-preview').src, preview); assert.equal(h.$('confirm-attach').disabled, true);
+      assert.equal(h.$('attach-choose-photo').disabled, true); assert.equal(h.$('clear-attach-photo').disabled, true);
+      assert.equal(JSON.parse(h.w.sessionStorage.getItem('receipt-session')).token, h.session.token);
+      h.submitAttachment(); assert.equal(h.requests.filter(request => request.action === 'attach_photo').length, 1);
+      assert.match(h.$('attach-message').textContent, /待傳照片仍保留/);
+    } finally { h.close(); }
+  }
+});
+
+test('a canceled attachment decode cannot replace the photo of a newly opened record', async () => {
+  const h = await harness();
+  try {
+    await h.ready(); const first = makeRow(h.month); const second = makeRow(h.month, { unit_name: '第二筆' });
+    h.records = [first, second]; h.click('refresh'); await h.idle();
+    h.w.document.querySelector(`[data-action="attach"][data-id="${first.id}"]`).click();
+    const pending = deferred(); h.decode = () => pending.promise; h.attachmentPhoto();
+    h.w.confirm = () => false; h.click('cancel-attach'); assert.equal(h.$('attach-dialog').open, true);
+    h.w.confirm = () => true; h.click('cancel-attach'); assert.equal(h.$('attach-dialog').open, false);
+    h.w.document.querySelector(`[data-action="attach"][data-id="${second.id}"]`).click();
+    h.decode = () => Promise.resolve(); h.attachmentPhoto('second.jpg');
+    await waitFor(() => !h.$('confirm-attach').disabled); const preview = h.$('attach-preview').src;
+    pending.resolve(); await new Promise(resolve => setTimeout(resolve, 15));
+    assert.match(h.$('attach-summary').textContent, /第二筆/); assert.equal(h.$('attach-preview').src, preview);
+    assert.equal(h.$('confirm-attach').disabled, false); assert.equal(h.$('address').value, '屏東縣');
+    assert.equal(h.requests.filter(request => request.action === 'attach_photo').length, 0);
+  } finally { h.close(); }
+});
+
+test('closing an in-flight attachment isolates a later dialog from the old upload result', async () => {
+  const pending = deferred(); let firstPayload, firstPhoto;
+  const h = await harness({ handler: (body, h, photo) => {
+    if (body.action === 'attach_photo') { firstPayload = body; firstPhoto = photo; return pending.promise; }
+    return h.defaultResponse(body, photo);
+  } });
+  try {
+    await h.ready(); const first = makeRow(h.month); const second = makeRow(h.month, { unit_name: '第二筆' });
+    h.records = [first, second]; h.click('refresh'); await h.idle();
+    h.w.document.querySelector(`[data-action="attach"][data-id="${first.id}"]`).click(); h.attachmentPhoto();
+    await waitFor(() => !h.$('confirm-attach').disabled); h.submitAttachment();
+    assert.equal(h.$('history-month').disabled, true); h.click('close-attachment');
+    assert.match(h.confirmations.at(-1), /關閉不一定能取消伺服器上傳/);
+    h.w.document.querySelector(`[data-action="attach"][data-id="${second.id}"]`).click(); h.attachmentPhoto('second.jpg');
+    await waitFor(() => !h.$('confirm-attach').disabled); const preview = h.$('attach-preview').src;
+    pending.resolve(h.defaultResponse(firstPayload, firstPhoto)); await new Promise(resolve => setTimeout(resolve, 15));
+    assert.equal(h.$('attach-dialog').open, true); assert.match(h.$('attach-summary').textContent, /第二筆/);
+    assert.equal(h.$('attach-preview').src, preview); assert.equal(h.$('history-message').hidden, true);
+    h.click('cancel-attach'); h.click('refresh'); await h.idle();
+    assert.ok(h.w.document.querySelector(`[data-action="photo"][data-id="${first.id}"]`));
+    assert.ok(h.w.document.querySelector(`[data-action="attach"][data-id="${second.id}"]`));
+  } finally { h.close(); }
+});
+
+test('unreadable attachment photos cannot submit and can be canceled before choosing another', async () => {
+  const h = await harness();
+  try {
+    await h.ready(); h.records = [makeRow(h.month)]; h.click('refresh'); await h.idle();
+    h.w.document.querySelector('[data-action="attach"]').click();
+    h.decode = () => Promise.reject(new Error('無法解碼')); h.attachmentPhoto('photo.heic', 'image/heic');
+    await waitFor(() => h.$('attach-photo-feedback').classList.contains('error'));
+    assert.equal(h.$('confirm-attach').disabled, true); h.submitAttachment();
+    assert.equal(h.requests.filter(request => request.action === 'attach_photo').length, 0);
+    h.click('clear-attach-photo'); assert.equal(h.$('attach-photo-feedback').hidden, true);
+    h.decode = () => Promise.resolve(); h.attachmentPhoto(); await waitFor(() => !h.$('confirm-attach').disabled);
+    h.submitAttachment(); await h.idle(); assert.equal(h.$('attach-dialog').open, false);
+  } finally { h.close(); }
+});
+
+test('session changes and genuine attachment authorization errors clear the dialog and block late results', async () => {
+  const pending = deferred(); let payload, photo;
+  const h = await harness({ handler: (body, h, upload) => {
+    if (body.action === 'attach_photo') { payload = body; photo = upload; return pending.promise; }
+    return h.defaultResponse(body, upload);
+  } });
+  try {
+    await h.ready(); h.records = [makeRow(h.month)]; h.click('refresh'); await h.idle();
+    h.w.document.querySelector('[data-action="attach"]').click(); h.attachmentPhoto();
+    await waitFor(() => !h.$('confirm-attach').disabled); h.submitAttachment();
+    h.w.sessionStorage.setItem('receipt-session', JSON.stringify({ store_id: 2, token: 'next-branch' })); h.w.dispatchEvent(new h.w.Event('focus'));
+    pending.resolve(h.defaultResponse(payload, photo)); await new Promise(resolve => setTimeout(resolve, 15));
+    assert.equal(h.$('workspace').hidden, true); assert.equal(h.$('attach-dialog').open, false);
+    assert.equal(h.$('attach-preview').hasAttribute('src'), false); assert.equal(h.$('history-body').children.length, 0);
+    assert.equal(JSON.parse(h.w.sessionStorage.getItem('receipt-session')).token, 'next-branch');
+  } finally { h.close(); }
+  const denied = await harness({ handler: (body, h, photo) => body.action === 'attach_photo'
+    ? response(403, { error: '門市驗證失敗' }) : h.defaultResponse(body, photo) });
+  try {
+    await denied.ready(); denied.records = [makeRow(denied.month)]; denied.click('refresh'); await denied.idle();
+    denied.w.document.querySelector('[data-action="attach"]').click(); denied.attachmentPhoto();
+    await waitFor(() => !denied.$('confirm-attach').disabled); denied.submitAttachment();
+    await waitFor(() => denied.$('workspace').hidden);
+    assert.equal(denied.$('attach-dialog').open, false); assert.equal(denied.w.sessionStorage.getItem('receipt-session'), null);
+    assert.equal(denied.$('attach-preview').hasAttribute('src'), false);
   } finally { denied.close(); }
 });

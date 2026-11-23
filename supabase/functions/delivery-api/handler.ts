@@ -8,6 +8,9 @@ const PAGE_SIZE = 50;
 const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
 const MAX_JSON_BYTES = 32 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Only known statement/transaction rejections prove an upload is unused.
+// In particular, 08007 and 40003 describe unknown completion, not rollback.
+const REJECTED_TRANSACTION_CODES = new Set(['22023', '23502', '23503', '23505', '23514', '40001', '42501', '55000', 'P0002']);
 const encoder = new TextEncoder();
 
 export type DeliveryRecord = {
@@ -26,10 +29,16 @@ export type SaveArguments = {
   p_photo_path: string | null; p_remove_photo: boolean; p_request_fingerprint: string;
 };
 export type SaveResult = { record: DeliveryRecord; photo_path: string | null; unused_photo_paths: string[] };
+export type AttachPhotoArguments = {
+  p_store_id: number; p_id: string; p_request_id: string; p_expected_version: number;
+  p_photo_hash: string; p_photo_path: string | null;
+};
+export type AttachPhotoResult = { record: DeliveryRecord; photo_path: string | null; ready_for_upload: boolean };
 export type Dependencies = {
   key: CryptoKey;
   loadRecords: (store: number, month: string, page: number) => Promise<Result<LoadResult>>;
   saveRecord: (args: SaveArguments) => Promise<Result<SaveResult>>;
+  attachRecordPhoto: (args: AttachPhotoArguments) => Promise<Result<AttachPhotoResult>>;
   photoPath: (store: number, id: string) => Promise<Result<{ photo_path: string | null }>>;
   uploadPhoto: (path: string, bytes: Uint8Array, mime: string) => Promise<{ error: DatabaseError | null }>;
   removePhotos: (paths: string[]) => Promise<{ error: DatabaseError | null }>;
@@ -45,6 +54,7 @@ class RequestError extends Error {
 }
 function fail(message: string, status = 400, code?: string): never { throw new RequestError(message, status, code); }
 function recordLocked(): never { fail('外送紀錄上傳後僅供查詢，不可編輯或刪除', 403, 'record_locked'); }
+function photoLocked(): never { fail('此紀錄已有單據照片，補傳後不能更換或移除，請重新載入查看。', 403, 'photo_locked'); }
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -122,7 +132,7 @@ async function readBody(request: Request): Promise<{ body: Record<string, unknow
   try { body = JSON.parse(payload); } catch { fail('外送資料格式錯誤，請重新整理後再試'); }
   if (!object(body)) fail('外送資料格式錯誤');
   if (Object.hasOwn(body, 'store_id')) fail('門市由登入狀態決定，請勿指定其他門市');
-  if (photo && body.action !== 'save') fail('此操作不能上傳照片');
+  if (photo && body.action !== 'save' && body.action !== 'attach_photo') fail('此操作不能上傳照片');
   return { body, photo };
 }
 function onlyKeys(body: Record<string, unknown>, allowed: string[]) {
@@ -181,6 +191,10 @@ function databaseFailure(error: DatabaseError): never {
   if (error.code === '42501') fail('沒有權限操作這筆外送紀錄', 403);
   if (error.code === '22023' || error.code === '23514') fail('外送資料不完整或格式有誤，請檢查後再儲存', 400);
   fail('雲端回應暫時中斷。若剛送出儲存，請保留內容並再次儲存確認，系統會避免重複記錄。', 503);
+}
+function attachmentFailure(error: DatabaseError): never {
+  if (error.code === '55000') photoLocked();
+  databaseFailure(error);
 }
 
 export function createHandler(dependencies: Dependencies) {
@@ -247,6 +261,7 @@ export function createHandler(dependencies: Dependencies) {
           courier: textField(body.courier, '外送人員', 60), delivered_at: deliveredAt(body.delivered_at),
           amount: decimal(body.amount, '金額', 99999999.99), distance_km: decimal(body.distance_km, '距離', 99999.99),
         };
+        if (record.address.replace(/\s/g, '') === '屏東縣') fail('請在屏東縣後填寫完整外送地址');
         const image = photo ? await readPhoto(photo) : null;
         const fingerprint = await digest(encoder.encode(JSON.stringify({ record, expectedVersion, removePhoto, photoHash: image?.hash || null })));
         // Unique per attempt, not per request_id, so concurrent retries cannot delete each other's upload.
@@ -264,15 +279,59 @@ export function createHandler(dependencies: Dependencies) {
           fail('儲存結果尚無法確認，內容已保留。請再次儲存確認，系統會避免重複記錄。', 503);
         }
         if (result.error) {
-          // A concrete PostgreSQL SQLSTATE proves the transaction was rejected.
-          // Transport and gateway errors may instead describe a lost successful response.
-          if (path && result.error.code && /^[0-9A-Z]{5}$/.test(result.error.code)) await cleanup([path]);
+          // An arbitrary SQLSTATE can describe unknown completion. Preserve the
+          // object unless a known rejection proves the write did not commit.
+          if (path && REJECTED_TRANSACTION_CODES.has(result.error.code || '')) await cleanup([path]);
           databaseFailure(result.error);
         }
         if (!result.data) fail('尚未收到儲存確認，請保留內容並再次儲存確認', 503);
         // Never remove an earlier committed photo. Only this attempt's unused
         // object can be cleaned up after an exact retry has been confirmed.
         if (path && path !== result.data.photo_path) await cleanup([path]);
+        return Response.json({ record: result.data.record }, { headers });
+      }
+      if (body.action === 'attach_photo') {
+        onlyKeys(body, ['action', 'id', 'request_id', 'expected_version']);
+        const id = uuid(body.id, '紀錄識別碼'), requestId = uuid(body.request_id, '補傳識別碼');
+        const expectedVersion = version(body.expected_version, false);
+        if (!photo) fail('請先拍照或選取要補傳的單據照片');
+        const image = await readPhoto(photo);
+        const args: AttachPhotoArguments = { p_store_id: store, p_id: id, p_request_id: requestId,
+          p_expected_version: expectedVersion, p_photo_hash: image.hash, p_photo_path: null };
+        // Read-only preflight accepts a committed exact retry before applying
+        // the one-photo lock. It never reserves a row or changes original data.
+        let preflight: Result<AttachPhotoResult>;
+        try { preflight = await dependencies.attachRecordPhoto(args); }
+        catch { fail('補傳結果尚無法確認，請保留這張照片並再次送出確認。', 503); }
+        if (preflight.error) attachmentFailure(preflight.error);
+        if (!preflight.data) fail('尚未收到補傳狀態，請保留這張照片並再次送出確認。', 503);
+        if (preflight.data.ready_for_upload === false) {
+          if (!preflight.data.photo_path || !preflight.data.record?.has_photo) fail('尚未收到補傳確認，請保留照片並重試。', 503);
+          return Response.json({ record: preflight.data.record }, { headers });
+        }
+        if (preflight.data.ready_for_upload !== true || preflight.data.photo_path || preflight.data.record?.has_photo) {
+          fail('尚未確認這筆紀錄可補傳單據，請保留照片並重試。', 503);
+        }
+        const path = `${store}/${id}/${crypto.randomUUID()}-${image.hash}.${image.ext}`;
+        const upload = await dependencies.uploadPhoto(path, image.bytes, image.mime);
+        if (upload.error) fail('單據照片上傳未完成，請保留這張照片並再次送出。', 503);
+        let result: Result<AttachPhotoResult>;
+        try { result = await dependencies.attachRecordPhoto({ ...args, p_photo_path: path }); }
+        catch {
+          // COMMIT may have succeeded; removing this object could break the
+          // saved receipt. The same request/hash can confirm it on retry.
+          fail('補傳結果尚無法確認，請保留這張照片並再次送出確認。', 503);
+        }
+        if (result.error) {
+          if (REJECTED_TRANSACTION_CODES.has(result.error.code || '')) await cleanup([path]);
+          attachmentFailure(result.error);
+        }
+        if (!result.data || result.data.ready_for_upload !== false || !result.data.photo_path || !result.data.record?.has_photo) {
+          fail('尚未收到補傳確認，請保留這張照片並再次送出確認。', 503);
+        }
+        // Another concurrent exact retry can have committed its own object.
+        // Never trust a cleanup list or remove any earlier committed object.
+        if (path !== result.data.photo_path) await cleanup([path]);
         return Response.json({ record: result.data.record }, { headers });
       }
       if (body.action === 'delete') {

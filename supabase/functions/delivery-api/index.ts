@@ -1,6 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.57.4';
 import { createHandler } from './handler.ts';
-import type { LoadResult, SaveResult } from './handler.ts';
+import type { AttachPhotoResult, LoadResult, SaveResult } from './handler.ts';
 import { createDistanceService } from './distance.ts';
 
 const secret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -24,8 +24,13 @@ Deno.serve(createHandler({
     const { data, error } = await db.rpc('save_delivery_record', args);
     return { data: data as SaveResult | null, error };
   },
+  async attachRecordPhoto(args) {
+    const { data, error } = await db.rpc('attach_delivery_record_photo', args);
+    return { data: data as AttachPhotoResult | null, error };
+  },
   async photoPath(store, id) {
-    return await db.from('delivery_records').select('photo_path').eq('store_id', store).eq('id', id).is('deleted_at', null).maybeSingle();
+    const { data, error } = await db.rpc('delivery_record_photo_path', { p_store_id: store, p_id: id });
+    return { data: data as { photo_path: string | null } | null, error };
   },
   async uploadPhoto(path, bytes, mime) {
     return await bucket.upload(path, bytes, { contentType: mime, upsert: false, cacheControl: '300' });

@@ -172,7 +172,7 @@ begin
     perform public.save_delivery_record(1,id2,gen_random_uuid(),0,second_payload,addition_path,false,fingerprint2);
   exception when object_not_in_prerequisite_state then denied := true;
   end;
-  assert denied, 'photo could be added to a previously uploaded record';
+  assert denied, 'legacy save RPC bypassed the separate one-time attachment flow';
   execute 'set local role service_role';
   denied := false;
   begin

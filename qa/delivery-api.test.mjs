@@ -21,6 +21,18 @@ function saveBody(changes = {}) {
     address: ' 屏東縣潮州鎮測試路1號 ', courier: ' 外送測試員 ', delivered_at: '2026-11-20T16:00:00.000Z',
     amount: 1250.5, distance_km: 3.25, remove_photo: false, ...changes };
 }
+function attachBody(changes = {}) {
+  return { action: 'attach_photo', id: ID, request_id: REQUEST, expected_version: 1, ...changes };
+}
+function attachedRecord(args, attached = true) {
+  const { unit_name, address, courier, delivered_at, amount, distance_km } = saveBody();
+  return { id: args.p_id, unit_name, address, courier, delivered_at, amount, distance_km,
+    has_photo: attached, version: args.p_expected_version + (attached ? 1 : 0), updated_at: new Date(NOW).toISOString() };
+}
+function attachmentResult(args) {
+  return { data: { record: attachedRecord(args, !!args.p_photo_path), photo_path: args.p_photo_path,
+    ready_for_upload: !args.p_photo_path }, error: null };
+}
 function fixture(overrides = {}) {
   const calls = [];
   const base = {
@@ -31,6 +43,7 @@ function fixture(overrides = {}) {
       return { data: { record: { id: args.p_id, ...args.p_record, has_photo: !!args.p_photo_path, version: args.p_expected_version + 1, updated_at: new Date(NOW).toISOString() },
         photo_path: args.p_photo_path, unused_photo_paths: [] }, error: null };
     },
+    async attachRecordPhoto(args) { calls.push(['attach', args]); return attachmentResult(args); },
     async deleteRecord(...args) { calls.push(['delete', ...args]); return { data: { ok: true, photo_path: null }, error: null }; },
     async photoPath(...args) { calls.push(['photo', ...args]); return { data: { photo_path: `${args[0]}/${args[1]}/private.jpg` }, error: null }; },
     async uploadPhoto(...args) { calls.push(['upload', ...args]); return { error: null }; },
@@ -53,6 +66,174 @@ function fixture(overrides = {}) {
   }
   return { handler, request, calls };
 }
+
+test('預填屏東縣本身不是完整地址，存檔前拒絕且不碰資料庫或照片', async () => {
+  const { request, calls } = fixture();
+  for (const address of ['屏東縣', ' 屏 東 縣 ']) {
+    const result = await request(saveBody({ address }), { photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) });
+    assert.equal(result.status, 400);
+    assert.match(result.data.error, /完整外送地址/);
+  }
+  assert.deepEqual(calls, []);
+  assert.equal((await request(saveBody({ address: '手動填寫特殊地址' }))).status, 200);
+});
+
+for (const store of [1, 2]) {
+  test(`門市${store}可補傳無照片紀錄，先檢查再上傳且不修改六欄`, async () => {
+    const { request, calls } = fixture();
+    const result = await request(attachBody(), { token: TOKENS[store], photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) });
+    assert.equal(result.status, 200);
+    assert.equal(result.data.record.has_photo, true);
+    assert.equal(result.data.record.version, 2);
+    assert.deepEqual(Object.keys(result.data), ['record']);
+    assert.deepEqual(calls.map(call => call[0]), ['attach', 'upload', 'attach']);
+    const before = calls[0][1], commit = calls[2][1];
+    assert.deepEqual(Object.keys(before).sort(), ['p_expected_version', 'p_id', 'p_photo_hash', 'p_photo_path', 'p_request_id', 'p_store_id']);
+    assert.equal(before.p_store_id, store);
+    assert.equal(before.p_photo_path, null);
+    assert.match(before.p_photo_hash, /^[0-9a-f]{64}$/);
+    assert.equal(commit.p_photo_hash, before.p_photo_hash);
+    assert.equal(commit.p_photo_path, calls[1][1]);
+    assert.ok(commit.p_photo_path.startsWith(`${store}/${ID}/`));
+    assert.ok(commit.p_photo_path.endsWith(`-${before.p_photo_hash}.jpg`));
+    assert.equal(JSON.stringify(result.data).includes(commit.p_photo_path), false);
+  });
+}
+
+test('補傳僅接受識別、版本及一張有效照片，不能夾帶業務欄位或路徑', async () => {
+  const { request, calls } = fixture();
+  for (const changes of [{ store_id: 2 }, { address: '新地址' }, { amount: 0 }, { photo_path: 'other/path' },
+    { remove_photo: true }, { id: 'invalid' }, { request_id: '' }, { expected_version: 0 }, { expected_version: '1' }]) {
+    assert.equal((await request(attachBody(changes), { photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) })).status, 400);
+  }
+  assert.equal((await request(attachBody())).status, 400);
+  for (const photo of [new File([], 'empty.jpg', { type: 'image/jpeg' }),
+    new File(['not-an-image'], 'fake.jpg', { type: 'image/jpeg' }), new File([JPEG], 'mismatch.png', { type: 'image/png' })]) {
+    assert.ok([400, 415].includes((await request(attachBody(), { photo })).status));
+  }
+  assert.deepEqual(calls, []);
+});
+
+test('補傳先驗證登入與門市，未登入/其他門市角色/主管不查資料也不上傳', async () => {
+  const { request, calls } = fixture();
+  for (const [token, status] of [['', 401], ['forged.token', 401],
+    [await sign({ store: 3, admin: false, exp: NOW + 60000 }), 403], [await sign({ store: 1, admin: true, exp: NOW + 60000 }), 403]]) {
+    assert.equal((await request(attachBody(), { token, photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) })).status, status);
+  }
+  assert.deepEqual(calls, []);
+});
+
+for (const [code, status, label] of [['55000', 403, '已有單據'], ['40001', 409, '舊版本'], ['P0002', 404, '不存在或跨店']]) {
+  test(`補傳${label}在預查即拒絕，不上傳或清理照片`, async () => {
+    const { request, calls } = fixture({ attachRecordPhoto: async (args, calls) => {
+      calls.push(['attach', args]); return { data: null, error: { code } };
+    } });
+    const result = await request(attachBody(), { photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) });
+    assert.equal(result.status, status);
+    if (code === '55000') assert.equal(result.data.code, 'photo_locked');
+    assert.deepEqual(calls.map(call => call[0]), ['attach']);
+  });
+}
+
+test('補傳已commit但回覆遺失時保留照片，相同請求重試由預查確認且不重上傳', async () => {
+  let committed;
+  const { request, calls } = fixture({ attachRecordPhoto: async (args, calls) => {
+    calls.push(['attach', args]);
+    if (committed) {
+      assert.equal(args.p_request_id, committed.request);
+      assert.equal(args.p_photo_hash, committed.hash);
+      return { data: committed.data, error: null };
+    }
+    if (!args.p_photo_path) return attachmentResult(args);
+    committed = { request: args.p_request_id, hash: args.p_photo_hash, data: attachmentResult(args).data };
+    throw new Error('lost after COMMIT');
+  } });
+  const send = () => request(attachBody(), { photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) });
+  assert.equal((await send()).status, 503);
+  assert.equal(calls.filter(call => call[0] === 'remove').length, 0);
+  const result = await send();
+  assert.equal(result.status, 200);
+  assert.equal(result.data.record.has_photo, true);
+  assert.equal(calls.filter(call => call[0] === 'upload').length, 1);
+  assert.equal(calls.filter(call => call[0] === 'remove').length, 0);
+});
+
+test('補傳未知DB錯誤或空確認均保留本次物件，不會清除可能已commit單據', async () => {
+  for (const result of [{ data: null, error: { code: 'PGRST000' } }, { data: null, error: null }]) {
+    const { request, calls } = fixture({ attachRecordPhoto: async (args, calls) => {
+      calls.push(['attach', args]); return args.p_photo_path ? result : attachmentResult(args);
+    } });
+    assert.equal((await request(attachBody(), { photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) })).status, 503);
+    assert.deepEqual(calls.map(call => call[0]), ['attach', 'upload', 'attach']);
+  }
+});
+
+for (const code of ['08007', '40003']) {
+  test(`SQLSTATE ${code}結果不明時，新增與補傳都保留已上傳照片`, async () => {
+    const failure = { data: null, error: { code } };
+    const save = fixture({ saveRecord: async (args, calls) => { calls.push(['save', args]); return failure; } });
+    const attach = fixture({ attachRecordPhoto: async (args, calls) => {
+      calls.push(['attach', args]); return args.p_photo_path ? failure : attachmentResult(args);
+    } });
+    for (const [client, body] of [[save, saveBody()], [attach, attachBody()]]) {
+      const result = await client.request(body, { photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) });
+      assert.equal(result.status, 503);
+      assert.equal(client.calls.filter(call => call[0] === 'upload').length, 1);
+      assert.equal(client.calls.some(call => call[0] === 'remove'), false, 'unknown outcome must never remove a possibly committed photo');
+    }
+  });
+}
+
+test('補傳在預查後遭並發鎖定只清本次新物件，回photo_locked而非登入錯誤', async () => {
+  const { request, calls } = fixture({ attachRecordPhoto: async (args, calls) => {
+    calls.push(['attach', args]); return args.p_photo_path ? { data: null, error: { code: '55000' } } : attachmentResult(args);
+  } });
+  const result = await request(attachBody(), { photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) });
+  assert.equal(result.status, 403);
+  assert.equal(result.data.code, 'photo_locked');
+  assert.deepEqual(calls.map(call => call[0]), ['attach', 'upload', 'attach', 'remove']);
+  assert.deepEqual(calls[3][1], [calls[1][1]]);
+});
+
+test('並發相同補傳只保留已commit物件，清理列表不能刪既有單據', async () => {
+  const preflights = [];
+  let committed;
+  const { request, calls } = fixture({ attachRecordPhoto: async (args, calls) => {
+    calls.push(['attach', args]);
+    if (!args.p_photo_path) return await new Promise(resolve => {
+      preflights.push(() => resolve(attachmentResult(args)));
+      if (preflights.length === 2) preflights.forEach(release => release());
+    });
+    if (!committed) committed = attachmentResult(args).data;
+    return { data: { ...committed, unused_photo_paths: ['earlier/committed/receipt.jpg'] }, error: null };
+  } });
+  const results = await Promise.all([1, 2].map(() => request(attachBody(), { photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) })));
+  assert.ok(results.every(result => result.status === 200 && result.data.record.has_photo));
+  const paths = calls.filter(call => call[0] === 'upload').map(call => call[1]);
+  assert.equal(paths.length, 2);
+  assert.notEqual(paths[0], paths[1]);
+  assert.deepEqual(calls.filter(call => call[0] === 'remove').map(call => call[1]), [[paths.find(path => path !== committed.photo_path)]]);
+});
+
+test('補傳改request或bytes被鎖定，照片上傳失敗不呼叫commit', async () => {
+  let saved;
+  const { request, calls } = fixture({ attachRecordPhoto: async (args, calls) => {
+    calls.push(['attach', args]);
+    if (saved && (saved.request !== args.p_request_id || saved.hash !== args.p_photo_hash)) return { data: null, error: { code: '55000' } };
+    if (args.p_photo_path) saved = { request: args.p_request_id, hash: args.p_photo_hash, data: attachmentResult(args).data };
+    return saved ? { data: saved.data, error: null } : attachmentResult(args);
+  } });
+  assert.equal((await request(attachBody(), { photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) })).status, 200);
+  for (const [body, bytes] of [[attachBody({ request_id: crypto.randomUUID() }), JPEG], [attachBody(), new Uint8Array([...JPEG, 1])]]) {
+    const result = await request(body, { photo: new File([bytes], 'receipt.jpg', { type: 'image/jpeg' }) });
+    assert.equal(result.status, 403);
+    assert.equal(result.data.code, 'photo_locked');
+  }
+  assert.equal(calls.filter(call => call[0] === 'upload').length, 1);
+  const brokenUpload = fixture({ uploadPhoto: async (...args) => { args.at(-1).push(['upload']); return { error: { message: 'unavailable' } }; } });
+  assert.equal((await brokenUpload.request(attachBody(), { photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) })).status, 503);
+  assert.deepEqual(brokenUpload.calls.map(call => call[0]), ['attach', 'upload']);
+});
 function distanceFixture(calculate) {
   const distanceCalls = [];
   const distance = {
