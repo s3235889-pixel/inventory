@@ -64,7 +64,7 @@ async function harness(options = {}) {
     submitAttachment() { this.$('attach-form').dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true })); },
     fill() {
       this.set('unit-name', ' 潮州國小 '); this.set('address', '屏東縣潮州鎮中山路1號'); this.set('courier', '小陳');
-      this.set('delivered-at', `${month}-01T00:05`); this.set('amount', '600.50'); this.set('distance-km', '2.35');
+      this.set('delivered-at', `${month}-01T00:05`); this.set('amount', '600.50'); this.set('distance-km', '2.35'); this.click('vehicle-personal');
     },
     photo(name = 'receipt.jpg', type = 'image/jpeg') {
       const file = new w.File(['photo bytes'], name, { type });
@@ -177,13 +177,17 @@ test('saving confirms the permanent lock and creates a new record with explicit 
     assert.equal(sent.delivered_at, h.core.localDateTimeToISO(`${h.month}-01T00:05`));
     assert.equal(sent.expected_version, 0);
     assert.equal(sent.remove_photo, false);
+    assert.equal(sent.vehicle_type, 'personal');
     assert.equal(sent.amount, 600.5); assert.equal(sent.distance_km, 2.35);
     assert.equal(Object.hasOwn(sent, 'store_id'), false);
     assert.equal(h.$('unit-name').value, '');
     assert.equal(h.$('courier').value, '小陳');
+    assert.equal(h.$('vehicle-personal').checked, false); assert.equal(h.$('vehicle-store').checked, false);
     assert.equal(h.$('total-count').textContent, '1');
     assert.match(h.$('message').textContent, /已上傳並鎖定/);
     assert.match(h.confirmations[0], /資料上傳後僅供查詢，所有欄位都不能編輯或刪除/);
+    assert.match(h.confirmations[0], /使用車輛：自用車/);
+    assert.equal(h.$('history-body').querySelector('.record-vehicle').textContent, '自用車');
     assert.match(h.confirmations[0], /本次未附單據；之後可從紀錄補傳一張照片/);
     assert.equal(h.$('history-body').querySelector('[data-action="edit"]'), null);
     assert.equal(h.$('history-body').querySelector('[data-action="delete"]'), null);
@@ -217,11 +221,13 @@ test('failed save preserves inputs and retries the same record and request IDs',
   try {
     await h.ready(); h.fill(); h.submit(); await h.idle();
     assert.equal(h.$('amount').value, '600.50');
+    assert.equal(h.$('vehicle-personal').checked, true);
     assert.match(h.$('message').textContent, /尚無法確認/);
     h.submit(); await h.idle();
     const saves = h.requests.filter(r => r.action === 'save');
     assert.equal(saves.length, 2);
     assert.equal(saves[0].id, saves[1].id); assert.equal(saves[0].request_id, saves[1].request_id);
+    assert.equal(saves[0].vehicle_type, 'personal'); assert.equal(saves[1].vehicle_type, 'personal');
   } finally { h.close(); }
 });
 
@@ -312,7 +318,8 @@ test('photos can be canceled and reselected before the first upload', async () =
     await waitFor(() => !h.$('save').disabled); assert.notEqual(h.$('photo-preview').src, firstPreview);
     h.submit(); await h.idle();
     const sent = h.requests.find(r => r.action === 'save');
-    assert.equal(sent.hasUpload, true); assert.equal(sent.remove_photo, false); assert.equal(sent.expected_version, 0);
+    assert.equal(sent.hasUpload, true); assert.equal(sent.remove_photo, false);
+    assert.equal(sent.vehicle_type, 'personal'); assert.equal(sent.expected_version, 0);
   } finally { h.close(); }
 });
 
@@ -610,12 +617,13 @@ test('the real Pingtung address default is clean, does not geocode, and needs a 
 test('attaching a receipt uses a separate read-only summary and preserves the new-record draft', async () => {
   const h = await harness();
   try {
-    await h.ready(); const row = makeRow(h.month, { address: '高雄市三民區建工路1號' }); h.records = [row]; h.click('refresh'); await h.idle();
-    h.fill(); h.photo(); await waitFor(() => !h.$('save').disabled);
+    await h.ready(); const row = makeRow(h.month, { address: '高雄市三民區建工路1號', vehicle_type: 'personal' }); h.records = [row]; h.click('refresh'); await h.idle();
+    h.fill(); h.click('vehicle-store'); h.photo(); await waitFor(() => !h.$('save').disabled);
     const draftPhoto = h.$('photo-preview').src;
     h.w.document.querySelector('[data-action="attach"]').click();
     assert.equal(h.$('attach-dialog').open, true);
     assert.match(h.$('attach-summary').textContent, /高雄市三民區建工路1號/);
+    assert.match(h.$('attach-summary').textContent, /使用車輛自用車/);
     assert.equal(h.$('attach-summary').querySelector('input, textarea, select'), null);
     assert.equal(h.$('unit-name').value, ' 潮州國小 '); assert.equal(h.$('address').value, '屏東縣潮州鎮中山路1號');
     h.attachmentPhoto(); await waitFor(() => !h.$('confirm-attach').disabled); h.submitAttachment(); await h.idle();
@@ -626,7 +634,8 @@ test('attaching a receipt uses a separate read-only summary and preserves the ne
     assert.equal(h.$('attach-dialog').open, false);
     assert.equal(h.$('unit-name').value, ' 潮州國小 '); assert.equal(h.$('photo-preview').src, draftPhoto);
     assert.equal(h.$('amount').value, '600.50'); assert.equal(h.$('address').value, '屏東縣潮州鎮中山路1號');
-    for (const field of ['unit_name', 'address', 'courier', 'delivered_at', 'amount', 'distance_km']) assert.equal(h.records[0][field], row[field]);
+    assert.equal(h.$('vehicle-store').checked, true); assert.equal(h.$('vehicle-personal').checked, false);
+    for (const field of ['unit_name', 'address', 'courier', 'vehicle_type', 'delivered_at', 'amount', 'distance_km']) assert.equal(h.records[0][field], row[field]);
     assert.equal(h.records[0].version, 2); assert.equal(h.records[0].has_photo, true);
     assert.deepEqual(Array.from(h.$('history-body').querySelectorAll('button'), button => button.dataset.action), ['photo']);
     assert.match(h.$('history-message').textContent, /單據已補傳並鎖定/);
@@ -783,4 +792,78 @@ test('session changes and genuine attachment authorization errors clear the dial
     assert.equal(denied.$('attach-dialog').open, false); assert.equal(denied.w.sessionStorage.getItem('receipt-session'), null);
     assert.equal(denied.$('attach-preview').hasAttribute('src'), false);
   } finally { denied.close(); }
+});
+
+test('vehicle radios have no default, require one choice, and selecting a vehicle clears the focused validation error', async () => {
+  const h = await harness();
+  const canLeave = () => { const event = new h.w.Event('beforeunload', { cancelable: true }); h.w.dispatchEvent(event); return !event.defaultPrevented; };
+  try {
+    await h.ready();
+    assert.equal(h.$('vehicle-personal').checked, false); assert.equal(h.$('vehicle-store').checked, false);
+    assert.equal(canLeave(), true);
+    h.click('vehicle-personal'); assert.equal(canLeave(), false);
+    h.click('vehicle-store');
+    assert.equal(h.$('vehicle-store').checked, true); assert.equal(h.$('vehicle-personal').checked, false);
+    h.fill();
+    h.$('vehicle-personal').checked = false;
+    h.$('vehicle-personal').dispatchEvent(new h.w.Event('input', { bubbles: true }));
+    h.submit();
+    assert.equal(h.requests.filter(r => r.action === 'save').length, 0);
+    assert.match(h.$('vehicle-type-error').textContent, /選擇自用車或店用車/);
+    assert.equal(h.$('vehicle-type').getAttribute('aria-invalid'), 'true');
+    assert.equal(h.w.document.activeElement.id, 'vehicle-personal');
+    h.click('vehicle-store');
+    assert.equal(h.$('vehicle-type-error').hidden, true);
+    assert.equal(h.$('vehicle-personal').hasAttribute('aria-invalid'), false);
+    assert.equal(h.$('vehicle-store').hasAttribute('aria-invalid'), false);
+    h.submit(); await h.idle();
+    assert.equal(h.requests.find(r => r.action === 'save').vehicle_type, 'store');
+    assert.match(h.confirmations[0], /使用車輛：店用車/);
+    assert.equal(h.records[0].vehicle_type, 'store');
+    assert.equal(h.$('history-body').querySelector('.record-vehicle').textContent, '店用車');
+    assert.equal(h.$('vehicle-personal').checked, false); assert.equal(h.$('vehicle-store').checked, false);
+    assert.equal(canLeave(), true);
+  } finally { h.close(); }
+});
+
+test('history and attachment summaries show vehicle ownership without assigning a type to old records', async () => {
+  const h = await harness();
+  try {
+    await h.ready();
+    h.records = ['personal', 'store', null, undefined].map(vehicle_type => makeRow(h.month, { vehicle_type }));
+    h.click('refresh'); await h.idle();
+    assert.deepEqual(Array.from(h.$('history-body').querySelectorAll('.record-vehicle'), el => el.textContent), ['自用車', '店用車', '未記錄', '未記錄']);
+    assert.equal(h.$('history-body').querySelector('input,select,textarea'), null);
+    const rows = h.$('history-body').querySelectorAll('tr');
+    rows[2].querySelector('[data-action="attach"]').click();
+    assert.match(h.$('attach-summary').textContent, /使用車輛未記錄/);
+    assert.equal(h.$('attach-summary').querySelector('input,select,textarea'), null);
+    assert.equal(h.$('vehicle-personal').checked, false); assert.equal(h.$('vehicle-store').checked, false);
+    h.click('close-attachment');
+    rows[1].querySelector('[data-action="attach"]').click();
+    assert.match(h.$('attach-summary').textContent, /使用車輛店用車/);
+  } finally { h.close(); }
+});
+
+test('changing vehicle after an uncertain save changes the operation but retains its record ID and scooter distance', async () => {
+  const h = await harness({ distanceAvailable: true, handler: (body, h, photo) => body.action === 'save' ? response(503, { error: '尚無法確認儲存結果' }) : h.defaultResponse(body, photo) });
+  try {
+    await h.ready(); h.fill(); h.submit(); await h.idle();
+    assert.equal(h.$('vehicle-personal').checked, true);
+    h.submit(); await h.idle();
+    let saves = h.requests.filter(r => r.action === 'save');
+    assert.equal(saves[0].request_id, saves[1].request_id);
+    assert.equal(saves[1].vehicle_type, 'personal');
+    h.click('vehicle-store');
+    assert.equal(h.$('distance-km').value, '2.35');
+    assert.equal(h.requests.filter(r => r.action === 'distance').length, 0);
+    h.submit(); await h.idle();
+    saves = h.requests.filter(r => r.action === 'save');
+    assert.equal(saves[2].vehicle_type, 'store');
+    assert.equal(saves[2].id, saves[0].id);
+    assert.notEqual(saves[2].request_id, saves[0].request_id);
+    assert.equal(saves[2].distance_km, 2.35);
+    assert.equal(h.$('vehicle-store').checked, true);
+    assert.match(h.$('distance-title').textContent, /機車/);
+  } finally { h.close(); }
 });

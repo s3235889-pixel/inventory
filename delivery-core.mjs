@@ -1,6 +1,11 @@
 // Dates in this feature always use Taiwan time, independent of device settings.
 export const ALLOWED_STORES = Object.freeze({ 1: '潮州店(C1)', 2: '木崎(C2)' });
 export const DEFAULT_DELIVERY_ADDRESS = '屏東縣';
+export const VEHICLE_TYPES = Object.freeze({ personal: '自用車', store: '店用車' });
+
+export function vehicleTypeLabel(value) {
+  return typeof value === 'string' && Object.hasOwn(VEHICLE_TYPES, value) ? VEHICLE_TYPES[value] : '未記錄';
+}
 
 export function isCountyPrefixOnly(value) {
   return typeof value === 'string' && value.replace(/\s/g, '') === DEFAULT_DELIVERY_ADDRESS;
@@ -45,6 +50,8 @@ export function validateFields(input) {
     value[field] = text;
   }
   if (!errors.address && isCountyPrefixOnly(value.address)) errors.address = '請在屏東縣後接續填寫鄉鎮市、路名與門牌。';
+  value.vehicle_type = input.vehicle_type;
+  if (typeof value.vehicle_type !== 'string' || !Object.hasOwn(VEHICLE_TYPES, value.vehicle_type)) errors.vehicle_type = '請選擇自用車或店用車。';
   value.delivered_at = localDateTimeToISO(input.delivered_at);
   if (!value.delivered_at) errors.delivered_at = '請填寫有效的外送日期與時間。';
   value.amount = readDecimal(input.amount, 99999999.99);

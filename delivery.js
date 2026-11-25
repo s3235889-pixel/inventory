@@ -1,10 +1,10 @@
-import { ALLOWED_STORES, DEFAULT_DELIVERY_ADDRESS, isCountyPrefixOnly, taipeiDateTime, isValidMonth, validateFields, isAllowedSession } from './delivery-core.mjs?v=20261123-attachment1';
+import { ALLOWED_STORES, DEFAULT_DELIVERY_ADDRESS, isCountyPrefixOnly, vehicleTypeLabel, taipeiDateTime, isValidMonth, validateFields, isAllowedSession } from './delivery-core.mjs?v=20261125-vehicle1';
 
 const API = 'https://rjetwgrelmvciatouwiw.supabase.co/functions/v1/delivery-api';
 const PHOTO_ORIGIN = 'https://rjetwgrelmvciatouwiw.supabase.co';
 const STORE_ORIGINS = Object.freeze({ 1: '屏東縣潮州鎮文化路42號', 2: '屏東縣潮州鎮東華路25號' });
 const $ = id => document.getElementById(id);
-const fields = { unit_name: 'unit-name', address: 'address', courier: 'courier', delivered_at: 'delivered-at', amount: 'amount', distance_km: 'distance-km' };
+const fields = { unit_name: 'unit-name', address: 'address', courier: 'courier', vehicle_type: 'vehicle-type', delivered_at: 'delivered-at', amount: 'amount', distance_km: 'distance-km' };
 const numberFormat = new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 2 });
 const format = value => Number.isFinite(Number(value)) ? numberFormat.format(Number(value)) : '—';
 const state = {
@@ -61,12 +61,19 @@ function setGate(message, { login = true, retry = false } = {}) {
   $('access-retry').hidden = !retry;
 }
 
+function fieldValue(field, id = fields[field]) {
+  return field === 'vehicle_type' ? document.querySelector('input[name="vehicle_type"]:checked')?.value || '' : $(id).value;
+}
+
+function clearFieldError(id) {
+  $(id).removeAttribute('aria-invalid');
+  if (id === 'vehicle-type') document.querySelectorAll('#vehicle-type input').forEach(el => el.removeAttribute('aria-invalid'));
+  $(`${id}-error`).hidden = true;
+  $(`${id}-error`).textContent = '';
+}
+
 function clearErrors() {
-  for (const id of Object.values(fields)) {
-    $(id).removeAttribute('aria-invalid');
-    $(`${id}-error`).hidden = true;
-    $(`${id}-error`).textContent = '';
-  }
+  for (const id of Object.values(fields)) clearFieldError(id);
 }
 
 function closeViewer() {
@@ -294,7 +301,7 @@ function syncControls() {
 }
 
 function signature() {
-  return JSON.stringify([...Object.entries(fields).map(([field, id]) => field === 'address' && isCountyPrefixOnly($(id).value) ? DEFAULT_DELIVERY_ADDRESS : $(id).value), state.photoVersion]);
+  return JSON.stringify([...Object.keys(fields).map(field => field === 'address' && isCountyPrefixOnly(fieldValue(field)) ? DEFAULT_DELIVERY_ADDRESS : fieldValue(field)), state.photoVersion]);
 }
 
 function markChanged() {
@@ -378,8 +385,11 @@ function renderRecords() {
     dateCell.append(element('span', 'record-date', time.slice(0, 10).replaceAll('-', '/')), element('span', 'record-time', time.slice(11, 16)));
     const unitCell = document.createElement('td');
     unitCell.append(element('strong', 'record-unit', row.unit_name), element('span', 'record-address', row.address));
-    const courierCell = element('td', '', row.courier);
+    const courierCell = element('td', 'record-courier');
     courierCell.dataset.label = '外送人員';
+    const vehicle = element('span', 'record-vehicle', vehicleTypeLabel(row.vehicle_type));
+    vehicle.setAttribute('aria-label', `使用車輛：${vehicleTypeLabel(row.vehicle_type)}`);
+    courierCell.append(element('span', 'courier-name', row.courier), vehicle);
     const amountCell = element('td', 'record-number', `${format(row.amount)} 元`);
     amountCell.dataset.label = '金額';
     const distanceCell = element('td', 'record-number', `${format(row.distance_km)} 公里`);
@@ -470,23 +480,25 @@ async function saveRecord(event) {
   event.preventDefault();
   if (busy() || !state.loaded || state.photoBusy || state.photoError || state.conflict || distancePending()) return;
   clearErrors();
-  const raw = Object.fromEntries(Object.entries(fields).map(([field, id]) => [field, $(id).value]));
+  const raw = Object.fromEntries(Object.keys(fields).map(field => [field, fieldValue(field)]));
   const validation = validateFields(raw);
   if (!validation.ok) {
     for (const [field, error] of Object.entries(validation.errors)) {
       const id = fields[field];
       $(id).setAttribute('aria-invalid', 'true');
+      if (field === 'vehicle_type') document.querySelectorAll('#vehicle-type input').forEach(el => el.setAttribute('aria-invalid', 'true'));
       $(`${id}-error`).textContent = error;
       $(`${id}-error`).hidden = false;
     }
-    $(fields[Object.keys(validation.errors)[0]]).focus();
+    const firstField = Object.keys(validation.errors)[0];
+    $(firstField === 'vehicle_type' ? 'vehicle-personal' : fields[firstField]).focus();
     setMessage('請確認標示的欄位，再儲存這筆外送。', 'error');
     return;
   }
   const photoNotice = state.photo
     ? '單據照片將一併上傳，之後不能更換或移除。'
     : '本次未附單據；之後可從紀錄補傳一張照片，成功後不能更換或移除。';
-  if (!window.confirm(`確認上傳「${validation.value.unit_name}」？\n\n資料上傳後僅供查詢，所有欄位都不能編輯或刪除。\n${photoNotice}\n請確認資料無誤後再上傳。`)) return;
+  if (!window.confirm(`確認上傳「${validation.value.unit_name}」？\n使用車輛：${vehicleTypeLabel(validation.value.vehicle_type)}\n\n資料上傳後僅供查詢，所有欄位都不能編輯或刪除。\n${photoNotice}\n請確認資料無誤後再上傳。`)) return;
   cancelDistanceWork();
   if (!state.pendingSave) {
     state.pendingSave = {
@@ -634,7 +646,7 @@ function openAttachment(row) {
   setHistoryMessage('');
   $('attach-summary').replaceChildren();
   for (const [label, value] of [
-    ['外送單位', row.unit_name], ['外送地址', row.address], ['外送人員', row.courier],
+    ['外送單位', row.unit_name], ['外送地址', row.address], ['外送人員', row.courier], ['使用車輛', vehicleTypeLabel(row.vehicle_type)],
     ['日期與時間', taipeiDateTime(row.delivered_at).replace('T', ' ')], ['金額', `${format(row.amount)} 元`], ['距離', `${format(row.distance_km)} 公里`],
   ]) {
     const item = element('div', 'attachment-detail');
@@ -759,8 +771,8 @@ async function viewPhoto(row) {
 $('delivery-form').addEventListener('submit', saveRecord);
 $('delivery-form').addEventListener('input', event => {
   if (event.target.type === 'file') return;
-  const id = event.target.id;
-  if (Object.values(fields).includes(id)) { $(id).removeAttribute('aria-invalid'); $(`${id}-error`).hidden = true; }
+  const id = event.target.name === 'vehicle_type' ? 'vehicle-type' : event.target.id;
+  if (Object.values(fields).includes(id)) clearFieldError(id);
   if (id === 'address') { addressChanged(); return; }
   if (id === 'distance-km') useManualDistance();
   markChanged();

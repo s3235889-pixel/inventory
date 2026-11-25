@@ -19,14 +19,14 @@ const TOKENS = { 1: await sign({ store: 1, admin: false, exp: NOW + 60000 }), 2:
 function saveBody(changes = {}) {
   return { action: 'save', id: ID, request_id: REQUEST, expected_version: 0, unit_name: ' 測試公司 ',
     address: ' 屏東縣潮州鎮測試路1號 ', courier: ' 外送測試員 ', delivered_at: '2026-11-20T16:00:00.000Z',
-    amount: 1250.5, distance_km: 3.25, remove_photo: false, ...changes };
+    amount: 1250.5, distance_km: 3.25, vehicle_type: 'personal', remove_photo: false, ...changes };
 }
 function attachBody(changes = {}) {
   return { action: 'attach_photo', id: ID, request_id: REQUEST, expected_version: 1, ...changes };
 }
 function attachedRecord(args, attached = true) {
-  const { unit_name, address, courier, delivered_at, amount, distance_km } = saveBody();
-  return { id: args.p_id, unit_name, address, courier, delivered_at, amount, distance_km,
+  const { unit_name, address, courier, delivered_at, amount, distance_km, vehicle_type } = saveBody();
+  return { id: args.p_id, unit_name, address, courier, delivered_at, amount, distance_km, vehicle_type,
     has_photo: attached, version: args.p_expected_version + (attached ? 1 : 0), updated_at: new Date(NOW).toISOString() };
 }
 function attachmentResult(args) {
@@ -67,6 +67,70 @@ function fixture(overrides = {}) {
   return { handler, request, calls };
 }
 
+test('兩店都可明確選擇自用車或店用車，回傳與儲存選項一致', async () => {
+  for (const store of [1, 2]) for (const vehicle_type of ['personal', 'store']) {
+    const { request, calls } = fixture();
+    const result = await request(saveBody({ vehicle_type }), { token: TOKENS[store] });
+    assert.equal(result.status, 200);
+    assert.equal(result.data.record.vehicle_type, vehicle_type);
+    assert.equal(calls[0][1].p_record.vehicle_type, vehicle_type);
+    assert.equal(calls[0][1].p_store_id, store);
+  }
+});
+
+test('無效或同時多選的車輛值在讀取照片前拒絕', async () => {
+  const { request, calls } = fixture();
+  for (const vehicle_type of [null, '', 'bike', '自用車', 'personal ', ['personal', 'store'], true, 0, {}]) {
+    const result = await request(saveBody({ vehicle_type }), { photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) });
+    assert.equal(result.status, 400);
+    assert.equal(result.data.code, 'vehicle_type_required');
+  }
+  assert.deepEqual(calls, []);
+});
+
+test('舊頁面未帶車輛欄位的重試保持原JSON順序與指紋，不替舊資料猜值', async () => {
+  const legacy = saveBody();
+  delete legacy.vehicle_type;
+  const expectedRecord = { unit_name: '測試公司', address: '屏東縣潮州鎮測試路1號', courier: '外送測試員',
+    delivered_at: '2026-11-20T16:00:00.000Z', amount: 1250.5, distance_km: 3.25 };
+  const expectedHash = Buffer.from(await crypto.subtle.digest('SHA-256', encoder.encode(JSON.stringify({
+    record: expectedRecord, expectedVersion: 0, removePhoto: false, photoHash: null,
+  })))).toString('hex');
+  const { request, calls } = fixture({ saveRecord: async (args, calls) => {
+    calls.push(['save', args]);
+    return { data: { record: { id: args.p_id, ...args.p_record, vehicle_type: null, has_photo: false, version: 1,
+      updated_at: new Date(NOW).toISOString() }, photo_path: null, unused_photo_paths: [] }, error: null };
+  } });
+  const result = await request(legacy);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.record.vehicle_type, null);
+  assert.deepEqual(calls[0][1].p_record, expectedRecord);
+  assert.equal(Object.hasOwn(calls[0][1].p_record, 'vehicle_type'), false);
+  assert.equal(calls[0][1].p_request_fingerprint, expectedHash);
+});
+
+test('新筆缺車種被DB拒絕時提示保留資料並刷新，只清理本次未用照片', async () => {
+  const missing = saveBody();
+  delete missing.vehicle_type;
+  const { request, calls } = fixture({ saveRecord: async (args, calls) => {
+    calls.push(['save', args]); return { data: null, error: { code: '22023' } };
+  } });
+  const result = await request(missing, { photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) });
+  assert.equal(result.status, 400);
+  assert.equal(result.data.code, 'vehicle_type_required');
+  assert.match(result.data.error, /重新整理.*自用車.*店用車/);
+  assert.deepEqual(calls.map(call => call[0]), ['upload', 'save', 'remove']);
+  assert.deepEqual(calls[2][1], [calls[0][1]]);
+});
+
+test('新請求指紋包含車種，相同內容可重試但改車種產生不同指紋', async () => {
+  const { request, calls } = fixture();
+  for (const vehicle_type of ['personal', 'personal', 'store']) assert.equal((await request(saveBody({ vehicle_type }))).status, 200);
+  const args = calls.filter(call => call[0] === 'save').map(call => call[1]);
+  assert.equal(args[0].p_request_fingerprint, args[1].p_request_fingerprint);
+  assert.notEqual(args[0].p_request_fingerprint, args[2].p_request_fingerprint);
+});
+
 test('預填屏東縣本身不是完整地址，存檔前拒絕且不碰資料庫或照片', async () => {
   const { request, calls } = fixture();
   for (const address of ['屏東縣', ' 屏 東 縣 ']) {
@@ -102,7 +166,7 @@ for (const store of [1, 2]) {
 
 test('補傳僅接受識別、版本及一張有效照片，不能夾帶業務欄位或路徑', async () => {
   const { request, calls } = fixture();
-  for (const changes of [{ store_id: 2 }, { address: '新地址' }, { amount: 0 }, { photo_path: 'other/path' },
+  for (const changes of [{ store_id: 2 }, { address: '新地址' }, { amount: 0 }, { vehicle_type: 'store' }, { photo_path: 'other/path' },
     { remove_photo: true }, { id: 'invalid' }, { request_id: '' }, { expected_version: 0 }, { expected_version: '1' }]) {
     assert.equal((await request(attachBody(changes), { photo: new File([JPEG], 'receipt.jpg', { type: 'image/jpeg' }) })).status, 400);
   }

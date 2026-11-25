@@ -13,9 +13,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REJECTED_TRANSACTION_CODES = new Set(['22023', '23502', '23503', '23505', '23514', '40001', '42501', '55000', 'P0002']);
 const encoder = new TextEncoder();
 
+export type VehicleType = 'personal' | 'store';
 export type DeliveryRecord = {
   id: string; unit_name: string; address: string; courier: string;
-  delivered_at: string; amount: number; distance_km: number;
+  delivered_at: string; amount: number; distance_km: number; vehicle_type: VehicleType | null;
   has_photo: boolean; version: number; updated_at: string;
 };
 type DatabaseError = { code?: string; message?: string };
@@ -25,7 +26,7 @@ export type LoadResult = {
 };
 export type SaveArguments = {
   p_store_id: number; p_id: string; p_request_id: string; p_expected_version: number;
-  p_record: Pick<DeliveryRecord, 'unit_name' | 'address' | 'courier' | 'delivered_at' | 'amount' | 'distance_km'>;
+  p_record: Pick<DeliveryRecord, 'unit_name' | 'address' | 'courier' | 'delivered_at' | 'amount' | 'distance_km'> & { vehicle_type?: VehicleType };
   p_photo_path: string | null; p_remove_photo: boolean; p_request_fingerprint: string;
 };
 export type SaveResult = { record: DeliveryRecord; photo_path: string | null; unused_photo_paths: string[] };
@@ -248,7 +249,7 @@ export function createHandler(dependencies: Dependencies) {
         }
       }
       if (body.action === 'save') {
-        onlyKeys(body, ['action', 'id', 'request_id', 'expected_version', 'unit_name', 'address', 'courier', 'delivered_at', 'amount', 'distance_km', 'remove_photo']);
+        onlyKeys(body, ['action', 'id', 'request_id', 'expected_version', 'unit_name', 'address', 'courier', 'delivered_at', 'amount', 'distance_km', 'vehicle_type', 'remove_photo']);
         const id = uuid(body.id, '紀錄識別碼'), requestId = uuid(body.request_id, '儲存識別碼');
         const expectedVersion = version(body.expected_version, true);
         if (body.remove_photo !== undefined && typeof body.remove_photo !== 'boolean') fail('照片移除選項無效');
@@ -256,12 +257,19 @@ export function createHandler(dependencies: Dependencies) {
         // Cached pages may still submit edits. Reject them before reading or uploading a photo.
         // Version zero is a new record or an exact retry; the database decides which.
         if (expectedVersion > 0 || removePhoto) recordLocked();
-        const record = {
+        const record: SaveArguments['p_record'] = {
           unit_name: textField(body.unit_name, '外送單位名稱', 100), address: textField(body.address, '地址', 300),
           courier: textField(body.courier, '外送人員', 60), delivered_at: deliveredAt(body.delivered_at),
           amount: decimal(body.amount, '金額', 99999999.99), distance_km: decimal(body.distance_km, '距離', 99999.99),
         };
         if (record.address.replace(/\s/g, '') === '屏東縣') fail('請在屏東縣後填寫完整外送地址');
+        // Preserve the exact old JSON shape/order for a cached page retry.
+        // The database rejects a missing choice only after checking an existing
+        // record's exact retry, so legacy uploads can still confirm completion.
+        if (Object.hasOwn(body, 'vehicle_type')) {
+          if (body.vehicle_type !== 'personal' && body.vehicle_type !== 'store') fail('請選擇自用車或店用車', 400, 'vehicle_type_required');
+          record.vehicle_type = body.vehicle_type;
+        }
         const image = photo ? await readPhoto(photo) : null;
         const fingerprint = await digest(encoder.encode(JSON.stringify({ record, expectedVersion, removePhoto, photoHash: image?.hash || null })));
         // Unique per attempt, not per request_id, so concurrent retries cannot delete each other's upload.
@@ -282,6 +290,9 @@ export function createHandler(dependencies: Dependencies) {
           // An arbitrary SQLSTATE can describe unknown completion. Preserve the
           // object unless a known rejection proves the write did not commit.
           if (path && REJECTED_TRANSACTION_CODES.has(result.error.code || '')) await cleanup([path]);
+          if (result.error.code === '22023' && !Object.hasOwn(record, 'vehicle_type')) {
+            fail('請先記下目前尚未儲存的資料，重新整理頁面後選擇「自用車」或「店用車」再儲存。', 400, 'vehicle_type_required');
+          }
           databaseFailure(result.error);
         }
         if (!result.data) fail('尚未收到儲存確認，請保留內容並再次儲存確認', 503);

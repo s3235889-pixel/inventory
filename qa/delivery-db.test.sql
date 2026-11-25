@@ -20,7 +20,7 @@ declare
   retry_path text;
   replacement_path text;
   addition_path text;
-  payload jsonb := '{"unit_name":"QA rollback","address":"測試地址","courier":"測試人員","delivered_at":"1900-01-31T16:00:00Z","amount":1200.50,"distance_km":3.25}';
+  payload jsonb := '{"unit_name":"QA rollback","address":"測試地址","courier":"測試人員","delivered_at":"1900-01-31T16:00:00Z","amount":1200.50,"distance_km":3.25,"vehicle_type":"personal"}';
   second_payload jsonb;
   changed jsonb;
   original_row jsonb;
@@ -86,7 +86,7 @@ begin
 
   -- Every recorded field is immutable, even if a caller disguises an edit as a new save.
   for field_change in select key, value from jsonb_each(
-    '{"unit_name":"修改單位","address":"修改地址","courier":"修改人員","delivered_at":"1900-02-01T16:00:00Z","amount":1500.75,"distance_km":4.5}'::jsonb)
+    '{"unit_name":"修改單位","address":"修改地址","courier":"修改人員","delivered_at":"1900-02-01T16:00:00Z","amount":1500.75,"distance_km":4.5,"vehicle_type":"store"}'::jsonb)
   loop
     changed := jsonb_set(payload, array[field_change.key], field_change.value);
     denied := false;
@@ -140,7 +140,7 @@ begin
     foreach assignment in array array[
       'unit_name = ''修改單位''', 'address = ''修改地址''', 'courier = ''修改人員''',
       'delivered_at = delivered_at + interval ''1 minute''', 'amount = amount + 1', 'distance_km = distance_km + 1',
-      'photo_path = null', format('photo_path = %L', replacement_path),
+      'vehicle_type = ''store''', 'photo_path = null', format('photo_path = %L', replacement_path),
       'id = gen_random_uuid()', 'store_id = 2', 'created_at = created_at + interval ''1 minute''',
       'last_request_id = gen_random_uuid()', 'last_request_fingerprint = repeat(''e'',64)',
       'version = version + 1', 'updated_at = updated_at + interval ''1 minute''', 'deleted_at = clock_timestamp()',

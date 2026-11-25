@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_DELIVERY_ADDRESS, isCountyPrefixOnly, taipeiDateTime, localDateTimeToISO, isValidMonth, readDecimal, validateFields, isAllowedSession } from '../delivery-core.mjs';
+import { DEFAULT_DELIVERY_ADDRESS, VEHICLE_TYPES, vehicleTypeLabel, isCountyPrefixOnly, taipeiDateTime, localDateTimeToISO, isValidMonth, readDecimal, validateFields, isAllowedSession } from '../delivery-core.mjs';
 
 test('Taiwan midnight and year boundary do not depend on the device timezone', () => {
   assert.equal(taipeiDateTime('2026-12-31T16:05:00Z'), '2027-01-01T00:05');
@@ -31,7 +31,7 @@ test('numeric entry requires explicit finite nonnegative numbers with at most tw
 });
 
 test('text is trimmed without changing valid content, blanks remain validation errors', () => {
-  const valid = { unit_name: ' 餐廳 ', address: '屏東縣潮州鎮\n2樓', courier: '小陳 ', delivered_at: '2026-12-01T00:01', amount: '0', distance_km: '1.25' };
+  const valid = { unit_name: ' 餐廳 ', address: '屏東縣潮州鎮\n2樓', courier: '小陳 ', vehicle_type: 'personal', delivered_at: '2026-12-01T00:01', amount: '0', distance_km: '1.25' };
   const result = validateFields(valid);
   assert.equal(result.ok, true);
   assert.equal(result.value.unit_name, '餐廳');
@@ -51,7 +51,7 @@ test('the entry gate only accepts sessions for the two exact branch identifiers'
 
 test('the Pingtung default is a prefix, not a complete delivery address, and other counties remain valid', () => {
   assert.equal(DEFAULT_DELIVERY_ADDRESS, '屏東縣');
-  const fields = { unit_name: '餐廳', address: '', courier: '小陳', delivered_at: '2026-12-01T00:01', amount: '0', distance_km: '1.25' };
+  const fields = { unit_name: '餐廳', address: '', courier: '小陳', vehicle_type: 'store', delivered_at: '2026-12-01T00:01', amount: '0', distance_km: '1.25' };
   for (const address of ['屏東縣', ' 屏東縣 ', '屏 東 縣\n']) {
     assert.equal(isCountyPrefixOnly(address), true);
     assert.equal(validateFields({ ...fields, address }).ok, false);
@@ -60,5 +60,24 @@ test('the Pingtung default is a prefix, not a complete delivery address, and oth
   for (const address of ['屏東縣潮州鎮文化路42號', '高雄市三民區建工路1號']) {
     assert.equal(isCountyPrefixOnly(address), false);
     assert.equal(validateFields({ ...fields, address }).ok, true);
+  }
+});
+
+
+test('vehicle ownership must be one exact choice and old unknown values are not guessed', () => {
+  const fields = { unit_name: '餐廳', address: '屏東縣潮州鎮文化路42號', courier: '小陳', delivered_at: '2026-12-01T00:01', amount: '0', distance_km: '1.25' };
+  assert.deepEqual(VEHICLE_TYPES, { personal: '自用車', store: '店用車' });
+  for (const [vehicle_type, label] of Object.entries(VEHICLE_TYPES)) {
+    const result = validateFields({ ...fields, vehicle_type });
+    assert.equal(result.ok, true);
+    assert.equal(result.value.vehicle_type, vehicle_type);
+    assert.equal(vehicleTypeLabel(vehicle_type), label);
+  }
+  for (const vehicle_type of [undefined, null, '', 'personal,store', 'PERSONAL', ' personal ', '__proto__', 'constructor', ['personal'], 1]) {
+    const result = validateFields({ ...fields, vehicle_type });
+    assert.equal(result.ok, false);
+    assert.deepEqual(Object.keys(result.errors), ['vehicle_type']);
+    assert.match(result.errors.vehicle_type, /選擇自用車或店用車/);
+    assert.equal(vehicleTypeLabel(vehicle_type), '未記錄');
   }
 });

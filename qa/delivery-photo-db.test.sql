@@ -20,7 +20,7 @@ declare
   original_path text;
   store2_path text;
   candidate_path text;
-  payload jsonb := '{"unit_name":"QA late photo rollback","address":"屏東縣潮州鎮測試路1號","courier":"測試人員","delivered_at":"1901-05-10T04:00:00Z","amount":1200.50,"distance_km":3.25}';
+  payload jsonb := '{"unit_name":"QA late photo rollback","address":"屏東縣潮州鎮測試路1號","courier":"測試人員","delivered_at":"1901-05-10T04:00:00Z","amount":1200.50,"distance_km":3.25,"vehicle_type":"personal"}';
   original_row jsonb;
   original_attachment jsonb;
   result jsonb;
