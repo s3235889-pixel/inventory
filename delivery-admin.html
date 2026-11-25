@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#293c69">
+  <meta name="referrer" content="no-referrer">
+  <title>外送記錄管理｜門市叫貨出貨與訂單管理系統</title>
+  <link rel="stylesheet" href="delivery-admin.css?v=20261125-admin1">
+  <script type="module" src="delivery-admin.js?v=20261125-admin1"></script>
+</head>
+<body>
+<main class="shell">
+  <header class="page-header"><a href="admin.html" target="_top" class="back-link">← 回叫貨出貨與訂單管理</a><span class="brand">管理者工作台</span></header>
+  <section id="login" class="login-card" aria-labelledby="login-title">
+    <span class="eyebrow">主管專區</span><h1 id="login-title">外送記錄管理</h1>
+    <p>請使用現有的主管密碼登入，管理潮州店與木崎的外送資料。</p>
+    <form id="login-form"><label for="password">主管密碼<input id="password" type="password" minlength="4" maxlength="128" autocomplete="current-password" required></label><button id="login-submit" type="submit" class="button primary">主管登入</button></form>
+    <button type="button" id="login-retry" class="button secondary" hidden>重試連線</button>
+    <p id="login-message" class="message info" role="status" aria-live="polite" hidden></p>
+  </section>
+  <div id="workspace" hidden>
+    <section class="hero"><div><span class="eyebrow">潮州店・木崎</span><h1>外送記錄管理</h1><p>查詢、整理外送資料，匯出每月明細。</p></div><div class="hero-actions"><button type="button" id="new-record" class="button primary">＋ 新增外送</button><button type="button" id="logout" class="button secondary">主管登出</button></div></section>
+    <section class="filter-card" aria-label="查詢與排序">
+      <form id="query-form" class="query-grid">
+        <label for="month">查詢月份<input id="month" type="month" min="1900-01" max="9999-12" required></label>
+        <label for="store-filter">門市<select id="store-filter"><option value="">全部門市</option><option value="1">潮州店(C1)</option><option value="2">木崎(C2)</option></select></label>
+        <button type="submit" id="refresh" class="button secondary">重新讀取</button>
+      </form>
+      <div class="refine-grid">
+        <label for="search">搜尋單位、地址或人員<input id="search" type="search" maxlength="300" placeholder="輸入關鍵字"></label>
+        <label for="vehicle-filter">使用車輛<select id="vehicle-filter"><option value="all">全部車輛</option><option value="personal">自用車</option><option value="store">店用車</option><option value="unknown">未記錄</option></select></label>
+        <label for="sort-by">排序欄位<select id="sort-by"><option value="delivered_at">外送日期時間</option><option value="store_id">門市</option><option value="unit_name">外送單位</option><option value="courier">外送人員</option><option value="amount">金額</option><option value="distance_km">公里數</option><option value="vehicle_type">使用車輛</option></select></label>
+        <label for="sort-direction">排序方向<select id="sort-direction"><option value="desc">由大到小／新到舊</option><option value="asc">由小到大／舊到新</option></select></label>
+      </div>
+    </section>
+    <div id="message" class="message" role="status" aria-live="polite" hidden></div>
+    <section class="summary-grid" aria-label="目前篩選條件的合計">
+      <article><span>外送筆數</span><strong id="total-count">—</strong><small>筆</small></article>
+      <article><span>外送總金額</span><strong id="total-amount">—</strong><small>元</small></article>
+      <article><span>外送總距離</span><strong id="total-distance">—</strong><small>公里</small></article>
+    </section>
+    <div class="list-toolbar"><p id="scope-description" class="muted">日期時間皆為台灣時間，金額單位為新台幣。</p><button type="button" id="export" class="button secondary" disabled>匯出 Excel</button></div>
+    <p id="list-state" class="list-state" role="status" aria-live="polite">正在讀取…</p>
+    <div id="table-wrap" class="table-wrap" hidden>
+      <table><caption class="sr-only">外送記錄管理，可使用上方排序或點選欄位標題</caption>
+        <thead><tr>
+          <th scope="col"><button type="button" data-sort="delivered_at">日期與門市</button></th>
+          <th scope="col"><button type="button" data-sort="unit_name">外送單位／地址</button></th>
+          <th scope="col"><button type="button" data-sort="courier">外送人員／車輛</button></th>
+          <th scope="col"><button type="button" data-sort="amount">金額</button></th>
+          <th scope="col"><button type="button" data-sort="distance_km">公里數</button></th>
+          <th scope="col">單據與管理</th>
+        </tr></thead><tbody id="rows"></tbody>
+      </table>
+    </div>
+    <nav class="pagination" id="pagination" aria-label="紀錄分頁" hidden><button type="button" id="previous-page" class="button secondary">上一頁</button><span id="page-info"></span><button type="button" id="next-page" class="button secondary">下一頁</button></nav>
+    <p class="section-note">Excel 匯出包含目前月份、門市與篩選條件的全部結果，依畫面排序，不限本頁。門市端上傳後仍不能編輯或刪除；資料更正由管理者處理。</p>
+  </div>
+</main>
+
+<dialog id="editor-dialog" class="editor-dialog" aria-labelledby="editor-title">
+  <div class="dialog-header"><div><span class="eyebrow" id="editor-mode">新增外送</span><h2 id="editor-title">新增外送記錄</h2></div><button type="button" id="close-editor" class="button secondary">關閉</button></div>
+  <p id="editor-note" class="muted"></p>
+  <div id="editor-message" class="message" role="status" aria-live="polite" hidden></div>
+  <div id="editor-conflict" class="message error" hidden><strong>資料已變更，尚未覆寫。</strong><p>目前草稿仍保留，請核對最新紀錄後再編輯。</p><button type="button" id="reload-editor" class="button secondary">捨棄草稿並讀取最新資料</button></div>
+  <form id="editor-form" novalidate>
+    <div class="form-grid">
+      <label for="edit-store" class="field">門市<select id="edit-store" name="store_id" aria-describedby="edit-store-error"><option value="1">潮州店(C1)</option><option value="2">木崎(C2)</option></select><span id="edit-store-error" class="field-error" hidden></span></label>
+      <label for="edit-date" class="field">外送日期與時間 <small>台灣時間</small><input id="edit-date" name="delivered_at" type="datetime-local" min="1900-01-01T00:00" max="9999-12-31T23:59" step="60" required aria-describedby="edit-date-error"><span id="edit-date-error" class="field-error" hidden></span></label>
+      <label for="edit-unit" class="field wide">外送單位名稱<input id="edit-unit" name="unit_name" maxlength="100" required aria-describedby="edit-unit-error"><span id="edit-unit-error" class="field-error" hidden></span></label>
+      <label for="edit-address" class="field wide">外送地址<textarea id="edit-address" name="address" rows="2" maxlength="300" required aria-describedby="edit-address-error distance-feedback">屏東縣</textarea><span class="field-hint">請接續填寫鄉鎮、路名與門牌。</span><span id="edit-address-error" class="field-error" hidden></span></label>
+      <label for="edit-courier" class="field">外送人員<input id="edit-courier" name="courier" maxlength="60" required aria-describedby="edit-courier-error"><span id="edit-courier-error" class="field-error" hidden></span></label>
+      <fieldset class="field vehicle-field" id="edit-vehicle" aria-describedby="edit-vehicle-error"><legend>使用車輛</legend><div class="vehicle-options"><label><input type="radio" id="edit-personal" name="vehicle_type" value="personal"><span>自用車</span></label><label><input type="radio" id="edit-store-vehicle" name="vehicle_type" value="store"><span>店用車</span></label><label id="legacy-vehicle-option" hidden><input type="radio" id="edit-unknown" name="vehicle_type" value=""><span>未記錄（舊資料）</span></label></div><span id="edit-vehicle-error" class="field-error" hidden></span></fieldset>
+      <label for="edit-amount" class="field">外送金額 <small>元</small><input id="edit-amount" name="amount" type="number" min="0" max="99999999.99" step="0.01" inputmode="decimal" required aria-describedby="edit-amount-error"><span id="edit-amount-error" class="field-error" hidden></span></label>
+      <label for="edit-distance" class="field">單程距離 <small>公里</small><input id="edit-distance" name="distance_km" type="number" min="0" max="99999.99" step="0.01" inputmode="decimal" required aria-describedby="edit-distance-error distance-feedback"><span id="edit-distance-error" class="field-error" hidden></span></label>
+    </div>
+    <section class="distance-panel"><h3>機車單程道路預估距離</h3><p id="distance-origin" class="muted"></p><p id="distance-feedback" role="status" aria-live="polite"></p><div class="inline-actions"><button type="button" id="calculate-distance" class="button secondary">重新計算</button><button type="button" id="manual-distance" class="text-button">手動填寫</button></div><p class="section-note">地址或門市變更時會清除前一個公里數。自用車／店用車都沿用機車道路估算，請核對後再儲存。</p><p id="distance-attribution" class="section-note" hidden>Powered by <a href="https://www.geoapify.com/" target="_blank" rel="noopener noreferrer">Geoapify</a> · © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a></p></section>
+    <section id="editor-photo-section" class="photo-section"><h3>外送單據 <small>選填</small></h3><p class="muted">可現在附上一張照片，也可儲存後補傳。</p><div class="inline-actions"><button type="button" id="editor-camera" class="button secondary">拍照</button><button type="button" id="editor-gallery" class="button secondary">從相簿選取</button><input type="file" id="editor-camera-input" accept="image/*" capture="environment" hidden><input type="file" id="editor-gallery-input" accept="image/*" hidden></div><p id="editor-photo-feedback" class="field-hint" role="status" hidden></p><div id="editor-photo-preview-wrap" class="photo-preview" hidden><img id="editor-photo-preview" alt="準備上傳的外送單據"><button type="button" id="editor-clear-photo" class="text-button">取消照片</button></div></section>
+    <div class="dialog-footer"><button type="button" id="cancel-editor" class="button secondary">取消</button><button type="submit" id="save-record" class="button primary">確認新增</button></div>
+  </form>
+</dialog>
+
+<dialog id="delete-dialog" aria-labelledby="delete-title">
+  <div class="dialog-header"><h2 id="delete-title">刪除外送記錄</h2><button type="button" id="close-delete" class="button secondary">關閉</button></div>
+  <p>請核對要刪除的紀錄。刪除後，門市紀錄、統計與匯出結果將同步移除這一筆。</p><dl id="delete-summary" class="detail-grid"></dl><p id="delete-message" class="message error" role="status" hidden></p>
+  <div class="dialog-footer"><button type="button" id="cancel-delete" class="button secondary">取消</button><button type="button" id="confirm-delete" class="button danger">確認刪除</button></div>
+</dialog>
+
+<dialog id="photo-dialog" aria-labelledby="photo-title"><div class="dialog-header"><h2 id="photo-title">外送單據</h2><button type="button" id="close-photo" class="button secondary">關閉</button></div><p id="photo-message" role="status"></p><img id="photo-image" class="full-photo" alt="外送單據照片" hidden><button type="button" id="retry-photo" class="button secondary" hidden>重新讀取照片</button></dialog>
+
+<dialog id="attachment-dialog" aria-labelledby="attachment-title">
+  <div class="dialog-header"><h2 id="attachment-title">補傳外送單據</h2><button type="button" id="close-attachment" class="button secondary">關閉</button></div><p class="muted">核對這筆資料後補上第一張單據照片，照片成功上傳後僅供查看。</p><dl id="attachment-summary" class="detail-grid"></dl>
+  <form id="attachment-form" novalidate><p id="attachment-message" class="message" role="status" hidden></p><div class="inline-actions"><button type="button" id="attachment-camera" class="button secondary">拍照</button><button type="button" id="attachment-gallery" class="button secondary">從相簿選取</button><input type="file" id="attachment-camera-input" accept="image/*" capture="environment" hidden><input type="file" id="attachment-gallery-input" accept="image/*" hidden></div><p class="field-hint">支援可讀取的 JPG、PNG、WebP，照片會自動縮小。</p><p id="attachment-photo-feedback" class="field-hint" role="status" hidden></p><div id="attachment-photo-preview-wrap" class="photo-preview" hidden><img id="attachment-photo-preview" alt="準備補傳的單據"><button type="button" id="attachment-clear-photo" class="text-button">取消照片</button></div><div class="dialog-footer"><button type="button" id="cancel-attachment" class="button secondary">取消</button><button type="submit" id="confirm-attachment" class="button primary">確認補傳</button></div></form>
+</dialog>
+</body>
+</html>

@@ -37,7 +37,7 @@
       .no-print {
         display: none !important;
       }
-      #tab-monthly-content, #tab-manage-content {
+      #tab-monthly-content, #tab-manage-content, #tab-delivery-content {
         display: none !important;
       }
       #tab-daily-content {
@@ -137,7 +137,7 @@
       </div>
 
       <!-- 分頁切換鈕 -->
-      <div class="flex items-center gap-2 bg-slate-800 p-1.5 rounded-xl border border-slate-700">
+      <div class="flex flex-wrap items-center gap-2 bg-slate-800 p-1.5 rounded-xl border border-slate-700">
         <button id="btn-tab-daily" onclick="switchMainTab('daily')" class="px-3.5 py-2 text-xs font-bold rounded-lg bg-indigo-600 text-white transition shadow">
           🚚 每日叫貨出貨總表
         </button>
@@ -146,6 +146,9 @@
         </button>
         <button id="btn-tab-monthly" onclick="switchMainTab('monthly')" class="px-3.5 py-2 text-xs font-bold rounded-lg text-slate-300 hover:bg-slate-700 transition">
           📊 各門市月度實出統計
+        </button>
+        <button id="btn-tab-delivery" onclick="switchMainTab('delivery')" class="px-3.5 py-2 text-xs font-bold rounded-lg text-slate-300 hover:bg-slate-700 transition">
+          🛵 外送記錄管理
         </button>
       </div>
     </div>
@@ -385,6 +388,17 @@
 
     </div>
 
+    <section id="tab-delivery-content" class="hidden no-print space-y-3" aria-label="外送記錄管理">
+      <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white border border-slate-200 p-4">
+        <div>
+          <h2 class="font-bold text-slate-900">🔒 外送記錄管理</h2>
+          <p class="text-sm text-slate-600 mt-1">管理潮州店與木崎外送資料，使用既有主管密碼登入。</p>
+        </div>
+        <a href="delivery-admin.html?v=20261125-admin1" target="_blank" rel="noopener" class="text-sm font-bold text-teal-700 underline">另開完整管理頁面 ↗</a>
+      </div>
+      <iframe id="delivery-admin-frame" title="外送記錄管理（管理者專用）" data-src="delivery-admin.html?v=20261125-admin1" class="w-full rounded-xl border border-slate-200 bg-slate-50" style="height:max(880px,85vh);border:0" loading="lazy" allow="camera"></iframe>
+    </section>
+
   </div>
 
   <!-- 模態框：手動新增/編輯訂單明細 -->
@@ -545,38 +559,32 @@
     }
 
     function switchMainTab(tab) {
-      const btnDaily = document.getElementById('btn-tab-daily');
-      const btnManage = document.getElementById('btn-tab-manage');
-      const btnMonthly = document.getElementById('btn-tab-monthly');
-      
-      const secDaily = document.getElementById('tab-daily-content');
-      const secManage = document.getElementById('tab-manage-content');
-      const secMonthly = document.getElementById('tab-monthly-content');
-
+      const tabs = ['daily', 'manage', 'monthly', 'delivery'];
+      if (!tabs.includes(tab)) return;
       const normalClass = 'px-3.5 py-2 text-xs font-bold rounded-lg text-slate-300 hover:bg-slate-700 transition';
       const activeClass = 'px-3.5 py-2 text-xs font-bold rounded-lg bg-indigo-600 text-white transition shadow';
-
-      btnDaily.className = normalClass;
-      btnManage.className = normalClass;
-      btnMonthly.className = normalClass;
-
-      secDaily.classList.add('hidden');
-      secManage.classList.add('hidden');
-      secMonthly.classList.add('hidden');
-
-      if (tab === 'daily') {
-        btnDaily.className = activeClass;
-        secDaily.classList.remove('hidden');
-      } else if (tab === 'manage') {
-        btnManage.className = activeClass;
-        secManage.classList.remove('hidden');
-        fetchManageOrders();
-      } else if (tab === 'monthly') {
-        btnMonthly.className = activeClass;
-        secMonthly.classList.remove('hidden');
-        loadMonthlyData();
+      for (const name of tabs) {
+        const active = name === tab;
+        const button = document.getElementById(`btn-tab-${name}`);
+        button.className = active ? activeClass : normalClass;
+        button.setAttribute('aria-pressed', String(active));
+        document.getElementById(`tab-${name}-content`).classList.toggle('hidden', !active);
+      }
+      if (tab === 'manage') fetchManageOrders();
+      if (tab === 'monthly') loadMonthlyData();
+      if (tab === 'delivery') {
+        const frame = document.getElementById('delivery-admin-frame');
+        if (!frame.getAttribute('src')) frame.src = frame.dataset.src;
+      }
+      if (tab === 'delivery' || location.hash === '#delivery') {
+        history.replaceState(null, '', `${location.pathname}${location.search}${tab === 'delivery' ? '#delivery' : ''}`);
       }
     }
+
+    if (location.hash === '#delivery') switchMainTab('delivery');
+    window.addEventListener('hashchange', () => {
+      if (location.hash === '#delivery') switchMainTab('delivery');
+    });
 
     async function loadBaseDropdowns() {
       const [catRes, storeRes, itemRes] = await Promise.all([
