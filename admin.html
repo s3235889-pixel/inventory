@@ -329,20 +329,33 @@
       <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap justify-between items-center gap-4">
         <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1">📅 選擇統計月份</label>
+            <label for="filter-month" class="block text-xs font-bold text-slate-600 mb-1">📅 選擇統計月份</label>
             <input type="month" id="filter-month" onchange="loadMonthlyData()" class="border p-2 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
           </div>
 
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1">🏷️ 商品類別</label>
+            <label for="filter-monthly-store" class="block text-xs font-bold text-slate-600 mb-1">🏪 選擇分店</label>
+            <select id="filter-monthly-store" onchange="renderMonthlyMatrixTable()" class="border p-2 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
+              <option value="">全部分店</option>
+              <option value="潮州店(C1)">潮州店(C1)</option>
+              <option value="木崎(C2)">木崎(C2)</option>
+              <option value="東港店(D)">東港店(D)</option>
+              <option value="萬丹店(W)">萬丹店(W)</option>
+              <option value="仁愛店(P2)">仁愛店(P2)</option>
+              <option value="屏東店(P1)">屏東店(P1)</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="filter-monthly-category" class="block text-xs font-bold text-slate-600 mb-1">🏷️ 商品類別</label>
             <select id="filter-monthly-category" onchange="renderMonthlyMatrixTable()" class="border p-2 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none">
               <option value="">全部類別</option>
             </select>
           </div>
 
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1">🔍 搜尋品項</label>
-            <input type="text" id="filter-monthly-keyword" oninput="renderMonthlyMatrixTable()" placeholder="輸入品項關鍵字..." class="border p-2 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none w-48">
+            <label for="filter-monthly-keyword" class="block text-xs font-bold text-slate-600 mb-1">🔍 搜尋品項</label>
+            <input type="text" id="filter-monthly-keyword" oninput="renderMonthlyMatrixTable()" placeholder="例如：高湯" class="border p-2 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none w-48">
           </div>
         </div>
 
@@ -366,9 +379,9 @@
       </div>
 
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div class="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-          <h2 class="text-sm font-bold text-slate-800">📦 各門市商品【實際出貨量】矩陣統計表</h2>
-          <span class="text-[11px] text-slate-400">※ 各門市欄為實出數量，缺貨另列於右側（依目前篩選統計）</span>
+        <div class="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2">
+          <h2 id="monthly-report-title" class="text-sm font-bold text-slate-800">📦 各分店商品實出與缺貨統計</h2>
+          <span id="monthly-report-hint" class="text-[11px] text-slate-500">選擇分店，再搜尋品項，即可查看該店的實出與缺貨數量。</span>
         </div>
 
         <div class="overflow-x-auto">
@@ -378,7 +391,7 @@
                 <th class="p-3 w-12 text-center border-r">#</th>
                 <th class="p-3 w-48 border-r whitespace-nowrap">商品名稱</th>
                 <th class="p-3 w-28 border-r whitespace-nowrap">商品分類</th>
-                <!-- 動態插入已勾選門市標頭 -->
+                <!-- 依月報分店篩選動態產生標頭 -->
                 <th class="p-3 text-center bg-amber-50 text-amber-900 font-black whitespace-nowrap">合計實出</th>
                 <th class="p-3 text-center bg-rose-50 text-rose-700 font-black whitespace-nowrap">合計缺貨</th>
               </tr>
@@ -537,6 +550,7 @@
     let monthlyRequestId = 0;
     let manageIsLoading = false;
     let monthlyIsLoading = false;
+    let monthlyLoadError = '';
     let categoriesList = [];
     let allItemsList = [];
     let allStoresList = [];
@@ -584,7 +598,6 @@
       }
       renderStoreCheckboxes();
       renderDailyData();
-      renderMonthlyMatrixTable();
     }
 
     function toggleAllStores(selectAll) {
@@ -595,7 +608,6 @@
       }
       renderStoreCheckboxes();
       renderDailyData();
-      renderMonthlyMatrixTable();
     }
 
     function switchMainTab(tab) {
@@ -1287,6 +1299,16 @@
     // ==========================================
     // 3. 每月實出統計邏輯
     // ==========================================
+    function getMonthlyDisplayStores() {
+      const selectedStore = document.getElementById('filter-monthly-store').value;
+      return selectedStore ? TARGET_STORES.filter(store => store === selectedStore) : [...TARGET_STORES];
+    }
+
+    function getMonthlyColumnCount() {
+      const stores = getMonthlyDisplayStores();
+      return stores.length === 1 ? 6 : stores.length + 5;
+    }
+
     function setMonthlyTotals(actual = 0, ordered = 0, shortage = 0) {
       document.getElementById('stat-total-actual').innerText = actual.toLocaleString();
       document.getElementById('stat-total-ordered').innerText = ordered.toLocaleString();
@@ -1296,18 +1318,17 @@
     async function loadMonthlyData() {
       const requestId = ++monthlyRequestId;
       monthlyIsLoading = true;
+      monthlyLoadError = '';
       currentMonthlyRawData = [];
       const monthStr = document.getElementById('filter-month').value;
       const tbody = document.getElementById('matrix-tbody');
-      const columnCount = TARGET_STORES.filter(store => selectedStoresSet.has(store)).length + 5;
-      tbody.innerHTML = `<tr><td colspan="${columnCount}" class="text-center py-10 text-slate-400">正在統計月度數據...</td></tr>`;
-      document.getElementById('matrix-tfoot').innerHTML = '';
       setMonthlyTotals('—', '—', '—');
+      renderMonthlyMatrixTable();
 
       if (!monthStr) {
         monthlyIsLoading = false;
         setMonthlyTotals();
-        tbody.innerHTML = `<tr><td colspan="${columnCount}" class="text-center py-10 text-slate-400">請選擇統計月份</td></tr>`;
+        renderMonthlyMatrixTable();
         return;
       }
 
@@ -1347,20 +1368,28 @@
         if (requestId !== monthlyRequestId) return;
         monthlyIsLoading = false;
         console.error('統計載入失敗:', err);
-        tbody.innerHTML = `<tr><td colspan="${columnCount}" class="text-center py-10 text-red-500">載入失敗: ${err.message}</td></tr>`;
+        monthlyLoadError = err.message || String(err);
+        renderMonthlyMatrixTable();
       }
     }
 
     function renderMonthlyMatrixTable() {
-      if (monthlyIsLoading) return;
       const selectedCat = document.getElementById('filter-monthly-category').value;
       const searchKeyword = document.getElementById('filter-monthly-keyword').value.trim().toLowerCase();
       const tbody = document.getElementById('matrix-tbody');
       const tfoot = document.getElementById('matrix-tfoot');
       const headerRow = document.getElementById('matrix-header-row');
 
-      // 取得當前已勾選的門市
-      const displayStores = TARGET_STORES.filter(s => selectedStoresSet.has(s));
+      // 月報使用自己的分店篩選，不受每日總表勾選影響。
+      const displayStores = getMonthlyDisplayStores();
+      const singleStore = displayStores.length === 1;
+      const columnCount = getMonthlyColumnCount();
+      document.getElementById('monthly-report-title').textContent = singleStore
+        ? `📦 ${displayStores[0]}｜商品實出與缺貨統計`
+        : '📦 各分店商品實出與缺貨統計';
+      document.getElementById('monthly-report-hint').textContent = singleStore
+        ? '以下數量與上方合計均為此分店，並依目前月份、類別及品項篩選統計。'
+        : '各分店欄為實出數量；選擇單一分店，可查看該店各商品的叫貨、實出與缺貨。';
 
       // 動態更新表頭
       if (headerRow) {
@@ -1369,22 +1398,41 @@
           <th class="p-3 w-48 border-r whitespace-nowrap">商品名稱</th>
           <th class="p-3 w-28 border-r whitespace-nowrap">商品分類</th>
         `;
-        displayStores.forEach(s => {
-          headersHtml += `<th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">${s}</th>`;
-        });
-        headersHtml += `<th class="p-3 text-center bg-amber-50 text-amber-900 font-black whitespace-nowrap">合計實出</th>`;
-        headersHtml += `<th class="p-3 text-center bg-rose-50 text-rose-700 font-black whitespace-nowrap">合計缺貨</th>`;
+        if (singleStore) {
+          headersHtml += `<th class="p-3 text-center border-r whitespace-nowrap">叫貨數量</th>`;
+        } else {
+          displayStores.forEach(s => {
+            headersHtml += `<th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">${s}</th>`;
+          });
+        }
+        headersHtml += `<th class="p-3 text-center bg-amber-50 text-amber-900 font-black whitespace-nowrap">${singleStore ? '實出數量' : '合計實出'}</th>`;
+        headersHtml += `<th class="p-3 text-center bg-rose-50 text-rose-700 font-black whitespace-nowrap">${singleStore ? '缺貨數量' : '合計缺貨'}</th>`;
         headerRow.innerHTML = headersHtml;
       }
 
-      if (displayStores.length === 0) {
-        setMonthlyTotals();
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-10 text-slate-400">請勾選至少一間門市以進行月度統計</td></tr>';
+      if (monthlyIsLoading) {
+        tbody.innerHTML = `<tr><td colspan="${columnCount}" class="text-center py-10 text-slate-400">正在統計月度數據...</td></tr>`;
         tfoot.innerHTML = '';
         return;
       }
 
-      const itemMap = {};
+      if (monthlyLoadError) {
+        setMonthlyTotals('—', '—', '—');
+        tbody.innerHTML = `<tr><td colspan="${columnCount}" class="text-center py-10 text-red-500"></td></tr>`;
+        tbody.querySelector('td').textContent = `載入失敗：${monthlyLoadError}。請重新選擇月份或點選月報頁籤重試。`;
+        tfoot.innerHTML = '';
+        return;
+      }
+
+      if (!document.getElementById('filter-month').value || displayStores.length === 0) {
+        setMonthlyTotals();
+        const message = displayStores.length === 0 ? '請選擇有效的分店' : '請選擇統計月份';
+        tbody.innerHTML = `<tr><td colspan="${columnCount}" class="text-center py-10 text-slate-400">${message}</td></tr>`;
+        tfoot.innerHTML = '';
+        return;
+      }
+
+      const itemMap = Object.create(null);
 
       currentMonthlyRawData.forEach(row => {
         const itemName = row.items.item_name;
@@ -1394,6 +1442,8 @@
         
         const matchedStore = displayStores.find(s => s.includes(rawStoreName) || rawStoreName.includes(s));
         if (!matchedStore) return;
+        if (selectedCat && categoryName !== selectedCat) return;
+        if (searchKeyword && !itemName.toLowerCase().includes(searchKeyword)) return;
 
         const { ordered: orderedQty, actual: actualQty, shortage: shortageQty } = getShipmentQuantities(row.quantity, row.actual_quantity, row.note);
 
@@ -1420,9 +1470,6 @@
         ...itemMap[name]
       }));
 
-      if (selectedCat) itemsList = itemsList.filter(i => i.categoryName === selectedCat);
-      if (searchKeyword) itemsList = itemsList.filter(i => i.itemName.toLowerCase().includes(searchKeyword));
-
       setMonthlyTotals(
         itemsList.reduce((sum, item) => sum + item.totalActual, 0),
         itemsList.reduce((sum, item) => sum + item.totalOrdered, 0),
@@ -1437,13 +1484,14 @@
       });
 
       if (itemsList.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="${displayStores.length + 5}" class="text-center py-10 text-slate-400">該月份查無符合篩選的出貨數據</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="${columnCount}" class="text-center py-10 text-slate-400">該分店與月份查無符合篩選的叫貨紀錄</td></tr>`;
         tfoot.innerHTML = '';
         return;
       }
 
       const storeColumnSums = {};
       displayStores.forEach(s => storeColumnSums[s] = 0);
+      let grandTotalOrdered = 0;
       let grandTotalActual = 0;
       let grandTotalShortage = 0;
 
@@ -1451,10 +1499,13 @@
         displayStores.forEach(s => {
           storeColumnSums[s] += (item.stores[s] || 0);
         });
+        grandTotalOrdered += item.totalOrdered;
         grandTotalActual += item.totalActual;
         grandTotalShortage += item.totalShortage;
 
-        const storeColsHtml = displayStores.map(s => {
+        const storeColsHtml = singleStore
+          ? `<td class="p-3 text-center border-r font-bold whitespace-nowrap">${item.totalOrdered}</td>`
+          : displayStores.map(s => {
           const qty = item.stores[s] || 0;
           const displayVal = qty > 0 ? `<span class="font-bold text-slate-800">${qty}</span>` : `<span class="text-slate-300">-</span>`;
           return `<td class="p-3 text-center border-r whitespace-nowrap">${displayVal}</td>`;
@@ -1472,9 +1523,11 @@
         `;
       }).join('');
 
-      const footStoreCols = displayStores.map(s => {
-        return `<td class="p-3 text-center border-r text-slate-900 font-black whitespace-nowrap">${storeColumnSums[s]}</td>`;
-      }).join('');
+      const footStoreCols = singleStore
+        ? `<td class="p-3 text-center border-r text-slate-900 font-black whitespace-nowrap">${grandTotalOrdered}</td>`
+        : displayStores.map(s => {
+          return `<td class="p-3 text-center border-r text-slate-900 font-black whitespace-nowrap">${storeColumnSums[s]}</td>`;
+        }).join('');
 
       tfoot.innerHTML = `
         <tr>
@@ -1487,37 +1540,42 @@
     }
 
     function exportToCSV() {
-      const monthStr = document.getElementById('filter-month').value || 'monthly_report';
-      const displayStores = TARGET_STORES.filter(s => selectedStoresSet.has(s));
+      if (monthlyIsLoading) return alert('月報仍在載入，請稍後再匯出。');
+      if (monthlyLoadError) return alert('月報載入失敗，請重新載入成功後再匯出。');
+      const monthStr = document.getElementById('filter-month').value;
+      const displayStores = getMonthlyDisplayStores();
+      const singleStore = displayStores.length === 1;
+      const columnCount = getMonthlyColumnCount();
+      const rows = Array.from(document.querySelectorAll('#matrix-tbody tr'))
+        .map(tr => Array.from(tr.querySelectorAll('td')))
+        .filter(cols => cols.length === columnCount);
+      if (!monthStr || rows.length === 0) return alert('目前篩選沒有可匯出的資料。');
 
-      let csvContent = '\uFEFF';
-      csvContent += `品項名稱,商品分類,${displayStores.join(',')},合計實出,合計缺貨\n`;
+      const csvCell = value => `"${String(value).replace(/"/g, '""')}"`;
+      const headers = singleStore
+        ? ['門市', '品項名稱', '商品分類', '叫貨數量', '實出數量', '缺貨數量']
+        : ['品項名稱', '商品分類', ...displayStores, '合計實出', '合計缺貨'];
+      let csvContent = '\uFEFF' + headers.map(csvCell).join(',') + '\n';
 
-      const rows = document.querySelectorAll('#matrix-tbody tr');
-      rows.forEach(tr => {
-        const cols = tr.querySelectorAll('td');
-        if (cols.length === (displayStores.length + 5)) {
-          const rowData = [
-            `"${cols[1].innerText.trim()}"`,
-            `"${cols[2].innerText.trim()}"`
-          ];
-          for (let i = 0; i < displayStores.length; i++) {
-            rowData.push(cols[3 + i].innerText.trim().replace('-', '0'));
-          }
-          rowData.push(cols[3 + displayStores.length].innerText.trim());
-          rowData.push(cols[4 + displayStores.length].innerText.trim());
-          csvContent += rowData.join(',') + '\n';
+      rows.forEach(cols => {
+        const rowData = cols.slice(1).map(col => col.innerText.trim());
+        for (let i = 2; i < rowData.length; i++) {
+          if (rowData[i] === '-') rowData[i] = '0';
         }
+        if (singleStore) rowData.unshift(displayStores[0]);
+        csvContent += rowData.map(csvCell).join(',') + '\n';
       });
 
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.setAttribute('href', url);
-      link.setAttribute('download', `各門市出貨量統計_${monthStr}.csv`);
+      const reportStore = singleStore ? displayStores[0] : '各分店';
+      link.setAttribute('download', `${reportStore}_商品實出與缺貨統計_${monthStr}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     }
   </script>
 </body>
