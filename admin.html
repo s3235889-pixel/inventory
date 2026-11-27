@@ -221,6 +221,7 @@
         <div class="text-right text-[11px] text-slate-700">
           <span><strong>查詢日期：</strong><span id="summary-date">-</span></span> │ 
           <span><strong>時段條件：</strong><span id="summary-shift">全部時段</span></span>
+          <div class="mt-1 font-bold text-rose-700">所選門市缺貨合計：<span id="daily-total-shortage" aria-live="polite">0</span></div>
         </div>
       </div>
 
@@ -286,7 +287,10 @@
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div class="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
           <h2 class="text-sm font-bold text-slate-800">📋 訂單叫貨明細清單</h2>
-          <span id="manage-record-count" class="text-xs font-bold text-indigo-600">共 0 筆明細</span>
+          <div class="flex flex-wrap justify-end items-center gap-2 text-xs font-bold">
+            <span id="manage-record-count" class="text-indigo-600">共 0 筆明細</span>
+            <span class="bg-rose-50 text-rose-700 border border-rose-200 rounded px-2 py-1">缺貨合計：<span id="manage-total-shortage" aria-live="polite">0</span></span>
+          </div>
         </div>
 
         <div class="overflow-x-auto">
@@ -303,12 +307,13 @@
                 <th class="p-3 whitespace-nowrap">商品品項</th>
                 <th class="p-3 w-24 text-center whitespace-nowrap">叫貨數量</th>
                 <th class="p-3 w-24 text-center whitespace-nowrap">實出數量</th>
+                <th class="p-3 w-24 text-center whitespace-nowrap bg-rose-50 text-rose-700">缺貨數量</th>
                 <th class="p-3 w-36 whitespace-nowrap">缺貨/出貨備註</th>
                 <th class="p-3 w-28 text-right pr-6 whitespace-nowrap">操作</th>
               </tr>
             </thead>
             <tbody id="manage-tbody" class="divide-y divide-slate-100 text-slate-700">
-              <tr><td colspan="10" class="text-center py-10 text-slate-400">載入數據中...</td></tr>
+              <tr><td colspan="11" class="text-center py-10 text-slate-400">載入數據中...</td></tr>
             </tbody>
           </table>
         </div>
@@ -363,7 +368,7 @@
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div class="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
           <h2 class="text-sm font-bold text-slate-800">📦 各門市商品【實際出貨量】矩陣統計表</h2>
-          <span class="text-[11px] text-slate-400">※ 數值已自動扣除缺貨數量 (僅統計已勾選門市)</span>
+          <span class="text-[11px] text-slate-400">※ 各門市欄為實出數量，缺貨另列於右側（依目前篩選統計）</span>
         </div>
 
         <div class="overflow-x-auto">
@@ -375,10 +380,11 @@
                 <th class="p-3 w-28 border-r whitespace-nowrap">商品分類</th>
                 <!-- 動態插入已勾選門市標頭 -->
                 <th class="p-3 text-center bg-amber-50 text-amber-900 font-black whitespace-nowrap">合計實出</th>
+                <th class="p-3 text-center bg-rose-50 text-rose-700 font-black whitespace-nowrap">合計缺貨</th>
               </tr>
             </thead>
             <tbody id="matrix-tbody" class="divide-y divide-slate-100 text-slate-700">
-              <tr><td colspan="10" class="text-center py-10 text-slate-400">載入數據中...</td></tr>
+              <tr><td colspan="11" class="text-center py-10 text-slate-400">載入數據中...</td></tr>
             </tbody>
             <tfoot id="matrix-tfoot" class="bg-slate-50 font-black border-t-2 border-slate-300">
             </tfoot>
@@ -494,9 +500,43 @@
       return index === -1 ? PINNED_ITEM_NAMES.length : index;
     }
 
+    // 實出量優先；只有未填實出量時，才讀取舊紀錄的「缺N」備註。
+    function getShipmentQuantities(orderedQty, actualQty, note) {
+      const orderedValue = Number(orderedQty);
+      const ordered = Number.isFinite(orderedValue) ? Math.max(0, orderedValue) : 0;
+      const hasActual = actualQty !== null && actualQty !== undefined && String(actualQty).trim() !== '';
+      const actualValue = hasActual ? Number(actualQty) : NaN;
+      let actual = ordered;
+      if (Number.isFinite(actualValue)) {
+        actual = Math.max(0, actualValue);
+      } else {
+        const match = String(note || '').match(/缺(?:貨)?\s*(\d+(?:\.\d+)?)/);
+        if (match) actual = Math.max(0, ordered - Number(match[1]));
+      }
+      return { ordered, actual, shortage: Math.max(0, ordered - actual) };
+    }
+
+    // 逐頁讀完明細，避免月報或跨日查詢只統計第一批資料。
+    async function fetchOrderItemPages(query) {
+      const pageSize = 500;
+      const rows = [];
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await query.range(offset, offset + pageSize - 1);
+        if (error) throw error;
+        const page = data || [];
+        rows.push(...page);
+        if (page.length < pageSize) return rows;
+      }
+    }
+
+    const pendingShortageUpdates = new Set();
     let currentDailyData = [];
     let currentMonthlyRawData = [];
     let currentManageData = [];
+    let manageRequestId = 0;
+    let monthlyRequestId = 0;
+    let manageIsLoading = false;
+    let monthlyIsLoading = false;
     let categoriesList = [];
     let allItemsList = [];
     let allStoresList = [];
@@ -570,6 +610,7 @@
         button.setAttribute('aria-pressed', String(active));
         document.getElementById(`tab-${name}-content`).classList.toggle('hidden', !active);
       }
+      if (tab === 'daily') fetchDailyData();
       if (tab === 'manage') fetchManageOrders();
       if (tab === 'monthly') loadMonthlyData();
       if (tab === 'delivery') {
@@ -665,35 +706,73 @@
       }
     }
 
+    function updateDailyShortageTotals() {
+      let total = 0;
+      document.querySelectorAll('#daily-data-container .print-card').forEach(card => {
+        const shortage = Array.from(card.querySelectorAll('.shortage-qty-cell'))
+          .reduce((sum, cell) => sum + (Number(cell.textContent) || 0), 0);
+        const totalCell = card.querySelector('.store-shortage-total');
+        if (totalCell) totalCell.textContent = shortage.toLocaleString();
+        total += shortage;
+      });
+      document.getElementById('daily-total-shortage').textContent = total.toLocaleString();
+    }
+
     async function handleShortageQtyChange(selectEl, orderItemId, orderedQty) {
-      const row = selectEl.closest('tr');
-      const printLabel = row.querySelector('.print-shortage-label');
-      const shortQty = parseInt(selectEl.value, 10) || 0;
+      const key = String(orderItemId);
+      if (pendingShortageUpdates.has(key)) return;
+      const record = currentDailyData.find(item => String(item.order_item_id) === key);
+      if (!record) return;
+      const previous = getShipmentQuantities(record.quantity, record.actual_quantity, record.note);
+      const shortQty = Math.min(previous.ordered, Math.max(0, Number(selectEl.value) || 0));
+      const actualQty = previous.ordered - shortQty;
+      const note = shortQty > 0 ? `缺${shortQty}(實出${actualQty})` : '正常';
+      pendingShortageUpdates.add(key);
+      selectEl.disabled = true;
 
-      let actualQty = Math.max(0, orderedQty - shortQty);
-      let note = '';
-
-      if (shortQty === 0) {
-        actualQty = orderedQty;
-        note = '正常';
-        selectEl.className = 'shortage-select bg-white border border-emerald-300 rounded text-[10px] p-0.5 font-bold text-emerald-600 focus:outline-none cursor-pointer';
-        row.classList.remove('row-shortage');
-        if (printLabel) printLabel.innerText = '';
-      } else {
-        note = `缺${shortQty}(實出${actualQty})`;
-        selectEl.className = 'shortage-select bg-rose-50 border border-rose-400 rounded text-[10px] p-0.5 font-black text-rose-600 focus:outline-none cursor-pointer';
-        row.classList.add('row-shortage');
-        if (printLabel) printLabel.innerText = `[缺${shortQty}]`;
-      }
-
-      if (orderItemId) {
-        await supabaseClient
+      try {
+        const { error } = await supabaseClient
           .from('order_items')
-          .update({
-            actual_quantity: actualQty,
-            note: note
-          })
+          .update({ actual_quantity: actualQty, note })
           .eq('order_item_id', orderItemId);
+        if (error) throw error;
+
+        [currentDailyData, currentManageData, currentMonthlyRawData].forEach(records => {
+          records.forEach(item => {
+            if (String(item.order_item_id) === key) {
+              item.actual_quantity = actualQty;
+              item.note = note;
+            }
+          });
+        });
+        // 僅更新該列與合計，保留其他列剛勾選的核對狀態。
+        document.querySelectorAll('#daily-data-container tr[data-order-item-id]').forEach(row => {
+          if (row.dataset.orderItemId !== key) return;
+          row.classList.toggle('row-shortage', shortQty > 0);
+          const cell = row.querySelector('.shortage-qty-cell');
+          cell.textContent = String(shortQty);
+          cell.classList.toggle('text-rose-700', shortQty > 0);
+          cell.classList.toggle('text-slate-400', shortQty === 0);
+          const select = row.querySelector('.shortage-select');
+          select.value = String(shortQty);
+          select.className = shortQty > 0
+            ? 'shortage-select bg-rose-50 border border-rose-400 rounded text-[10px] p-0.5 font-black text-rose-600 focus:outline-none cursor-pointer'
+            : 'shortage-select bg-white border border-emerald-300 rounded text-[10px] p-0.5 font-bold text-emerald-600 focus:outline-none cursor-pointer';
+          const printLabel = row.querySelector('.print-shortage-label');
+          if (printLabel) printLabel.textContent = shortQty > 0 ? `[缺${shortQty}]` : '';
+        });
+        updateDailyShortageTotals();
+        if (!document.getElementById('tab-manage-content').classList.contains('hidden')) renderManageTable();
+        if (!document.getElementById('tab-monthly-content').classList.contains('hidden')) renderMonthlyMatrixTable();
+      } catch (err) {
+        selectEl.value = String(previous.shortage);
+        alert(`缺貨數量儲存失敗，請重新整理確認：${err.message}`);
+      } finally {
+        pendingShortageUpdates.delete(key);
+        selectEl.disabled = false;
+        document.querySelectorAll('#daily-data-container tr[data-order-item-id]').forEach(row => {
+          if (row.dataset.orderItemId === key) row.querySelector('.shortage-select').disabled = false;
+        });
       }
     }
 
@@ -702,6 +781,7 @@
       const selectedDate = document.getElementById('filter-date').value;
       const selectedShift = document.getElementById('filter-shift').value;
 
+      document.getElementById('daily-total-shortage').textContent = '—';
       container.innerHTML = '<div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border">正在透過 Supabase 加載數據...</div>';
 
       try {
@@ -741,13 +821,7 @@
     }
 
     function buildShortageQtySelectHTML(orderItemId, orderedQty, actualQty, note) {
-      let currentShortage = 0;
-      if (actualQty !== null && actualQty !== undefined && actualQty < orderedQty) {
-        currentShortage = Math.max(0, orderedQty - actualQty);
-      } else if (note && note.includes('缺')) {
-        const match = note.match(/缺(\d+)/);
-        if (match) currentShortage = parseInt(match[1], 10);
-      }
+      const { ordered, shortage: currentShortage } = getShipmentQuantities(orderedQty, actualQty, note);
 
       const isShort = currentShortage > 0;
       const selectClass = isShort
@@ -757,16 +831,19 @@
       let optionsHTML = '';
       optionsHTML += `<option value="0" class="text-emerald-600 font-bold" ${currentShortage === 0 ? 'selected' : ''}>正常</option>`;
 
-      const maxShortOption = Math.max(10, orderedQty);
+      const maxShortOption = Math.floor(ordered);
       for (let s = 1; s <= maxShortOption; s++) {
         const isSelected = (s === currentShortage);
         optionsHTML += `<option value="${s}" class="text-rose-600 font-bold" ${isSelected ? 'selected' : ''}>缺 ${s}</option>`;
       }
 
+      if (!Number.isInteger(currentShortage)) {
+        optionsHTML += `<option value="${currentShortage}" selected>缺 ${currentShortage}</option>`;
+      }
       const printText = isShort ? `[缺${currentShortage}]` : '';
 
       return `
-        <select onchange="handleShortageQtyChange(this, ${orderItemId}, ${orderedQty})" class="${selectClass}">
+        <select aria-label="缺貨狀態" onchange="handleShortageQtyChange(this, ${orderItemId}, ${orderedQty})" class="${selectClass}" ${pendingShortageUpdates.has(String(orderItemId)) ? 'disabled' : ''}>
           ${optionsHTML}
         </select>
         <span class="print-shortage-label text-rose-700 font-bold">${printText}</span>
@@ -786,6 +863,7 @@
       const displayStores = TARGET_STORES.filter(s => selectedStoresSet.has(s));
 
       if (displayStores.length === 0) {
+        document.getElementById('daily-total-shortage').textContent = '0';
         container.innerHTML = '<div class="col-span-full bg-white p-8 rounded-xl text-center text-slate-400 border">請至少勾選一間門市以顯示資料</div>';
         return;
       }
@@ -834,7 +912,7 @@
 
         let rowsHtml = '';
         if (itemsList.length === 0) {
-          rowsHtml = `<tr><td colspan="5" class="text-center text-slate-400 py-3">無叫貨紀錄</td></tr>`;
+          rowsHtml = `<tr><td colspan="6" class="text-center text-slate-400 py-3">無叫貨紀錄</td></tr>`;
         } else {
           rowsHtml = itemsList.map((item, idx) => {
             const pLevel = item.priority;
@@ -843,18 +921,20 @@
             else if (pLevel === 2) rowClass = 'bg-orange-100/70 font-bold text-orange-950';
             else if (pLevel === 3) rowClass = 'bg-sky-100/60 font-bold text-sky-950';
 
-            const isShortage = (item.actualQuantity !== null && item.actualQuantity < item.quantity) || (item.note && item.note.includes('缺'));
+            const { shortage } = getShipmentQuantities(item.quantity, item.actualQuantity, item.note);
+            const isShortage = shortage > 0;
             if (isShortage) rowClass += ' row-shortage';
 
             const checkedClass = item.isChecked ? 'row-checked' : '';
             const shortageSelectHtml = buildShortageQtySelectHTML(item.orderItemId, item.quantity, item.actualQuantity, item.note);
 
             return `
-              <tr class="border-b last:border-0 border-slate-200 transition-colors ${rowClass} ${checkedClass}">
+              <tr data-order-item-id="${item.orderItemId}" class="border-b last:border-0 border-slate-200 transition-colors ${rowClass} ${checkedClass}">
                 <td class="text-center text-slate-400 w-3.5">${idx + 1}</td>
                 <td class="font-bold text-slate-800 whitespace-nowrap leading-tight">${item.itemName}</td>
                 <td class="text-center font-black text-indigo-700 w-6">${item.quantity}</td>
-                <td class="text-center w-24">
+                <td class="shortage-qty-cell text-center font-black w-8 bg-rose-50/70 ${isShortage ? 'text-rose-700' : 'text-slate-400'}">${shortage}</td>
+                <td class="text-center w-16 no-print">
                   ${shortageSelectHtml}
                 </td>
                 <td class="text-center w-4 no-print">
@@ -880,31 +960,45 @@
                   <th class="text-center w-3.5">#</th>
                   <th class="whitespace-nowrap">品項</th>
                   <th class="text-center w-6">叫</th>
-                  <th class="text-center w-24 whitespace-nowrap">狀態</th>
+                  <th class="text-center w-8 whitespace-nowrap bg-rose-50 text-rose-700">缺貨</th>
+                  <th class="text-center w-16 whitespace-nowrap no-print">狀態</th>
                   <th class="text-center w-4 no-print">核</th>
                 </tr>
               </thead>
               <tbody>
                 ${rowsHtml}
               </tbody>
+              <tfoot class="border-t-2 border-rose-200 bg-rose-50 font-bold text-rose-700">
+                <tr>
+                  <td colspan="3" class="text-right">缺貨合計</td>
+                  <td class="store-shortage-total text-center font-black">0</td>
+                  <td colspan="2" class="no-print"></td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         `;
 
         container.appendChild(storeCard);
       });
+      updateDailyShortageTotals();
     }
 
     // ==========================================
     // 2. 每日訂單明細管理邏輯 (CRUD)
     // ==========================================
     async function fetchManageOrders() {
+      const requestId = ++manageRequestId;
+      manageIsLoading = true;
+      currentManageData = [];
+      document.getElementById('manage-record-count').innerText = '載入中…';
       const tbody = document.getElementById('manage-tbody');
       const targetDate = document.getElementById('manage-filter-date').value;
       const targetStore = document.getElementById('manage-filter-store').value;
       const targetShift = document.getElementById('manage-filter-shift').value;
 
-      tbody.innerHTML = '<tr><td colspan="10" class="text-center py-10 text-slate-400">正在加載訂單明細...</td></tr>';
+      document.getElementById('manage-total-shortage').textContent = '—';
+      tbody.innerHTML = '<tr><td colspan="11" class="text-center py-10 text-slate-400">正在加載訂單明細...</td></tr>';
 
       try {
         let query = supabaseClient
@@ -933,8 +1027,9 @@
         if (targetDate) query = query.eq('orders.order_date', targetDate);
         if (targetShift) query = query.eq('orders.shift', targetShift);
 
-        const { data, error } = await query;
-        if (error) throw error;
+        const data = await fetchOrderItemPages(query);
+        if (requestId !== manageRequestId) return;
+        manageIsLoading = false;
 
         currentManageData = (data || []).sort((a, b) => {
           const wA = getStoreWeight(a.orders.stores.store_name);
@@ -947,12 +1042,16 @@
 
         renderManageTable();
       } catch (err) {
+        if (requestId !== manageRequestId) return;
+        manageIsLoading = false;
+        document.getElementById('manage-record-count').innerText = '讀取失敗';
         console.error(err);
-        tbody.innerHTML = `<tr><td colspan="10" class="text-center py-10 text-red-500">讀取失敗: ${err.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" class="text-center py-10 text-red-500">讀取失敗: ${err.message}</td></tr>`;
       }
     }
 
     function renderManageTable() {
+      if (manageIsLoading) return;
       const tbody = document.getElementById('manage-tbody');
       const targetStore = document.getElementById('manage-filter-store').value;
       const keyword = document.getElementById('manage-filter-keyword').value.trim().toLowerCase();
@@ -970,15 +1069,18 @@
       });
 
       document.getElementById('manage-record-count').innerText = `共 ${filtered.length} 筆明細`;
+      const shortageTotal = filtered.reduce((sum, row) => sum + getShipmentQuantities(row.quantity, row.actual_quantity, row.note).shortage, 0);
+      document.getElementById('manage-total-shortage').textContent = shortageTotal.toLocaleString();
 
       if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="text-center py-10 text-slate-400">查無符合條件之訂單紀錄</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" class="text-center py-10 text-slate-400">查無符合條件之訂單紀錄</td></tr>';
         updateManageBatchDeleteBtn();
         return;
       }
 
       tbody.innerHTML = filtered.map((row, idx) => {
-        const actualDisplay = row.actual_quantity !== null ? `<span class="font-bold text-slate-800">${row.actual_quantity}</span>` : `<span class="text-slate-400">(同叫貨)</span>`;
+        const { actual, shortage } = getShipmentQuantities(row.quantity, row.actual_quantity, row.note);
+        const actualDisplay = `<span class="font-bold text-slate-800">${actual}</span>`;
         const noteDisplay = row.note ? `<span class="text-rose-600 font-bold">${row.note}</span>` : `<span class="text-slate-300">-</span>`;
 
         return `
@@ -993,6 +1095,7 @@
             <td class="p-3 font-bold text-slate-800 whitespace-nowrap">${row.items.item_name}</td>
             <td class="p-3 text-center font-black text-indigo-600 whitespace-nowrap">${row.quantity}</td>
             <td class="p-3 text-center whitespace-nowrap">${actualDisplay}</td>
+            <td class="p-3 text-center font-black bg-rose-50/60 whitespace-nowrap ${shortage > 0 ? 'text-rose-700' : 'text-slate-400'}">${shortage}</td>
             <td class="p-3 text-xs whitespace-nowrap">${noteDisplay}</td>
             <td class="p-3 text-right pr-6 space-x-1 whitespace-nowrap">
               <button onclick="editOrderRecord(${row.order_item_id})" class="px-2 py-1 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded font-bold transition">✏️ 編輯</button>
@@ -1184,12 +1287,29 @@
     // ==========================================
     // 3. 每月實出統計邏輯
     // ==========================================
+    function setMonthlyTotals(actual = 0, ordered = 0, shortage = 0) {
+      document.getElementById('stat-total-actual').innerText = actual.toLocaleString();
+      document.getElementById('stat-total-ordered').innerText = ordered.toLocaleString();
+      document.getElementById('stat-total-shortage').innerText = shortage.toLocaleString();
+    }
+
     async function loadMonthlyData() {
+      const requestId = ++monthlyRequestId;
+      monthlyIsLoading = true;
+      currentMonthlyRawData = [];
       const monthStr = document.getElementById('filter-month').value;
       const tbody = document.getElementById('matrix-tbody');
-      tbody.innerHTML = '<tr><td colspan="10" class="text-center py-10 text-slate-400">正在統計月度數據...</td></tr>';
+      const columnCount = TARGET_STORES.filter(store => selectedStoresSet.has(store)).length + 5;
+      tbody.innerHTML = `<tr><td colspan="${columnCount}" class="text-center py-10 text-slate-400">正在統計月度數據...</td></tr>`;
+      document.getElementById('matrix-tfoot').innerHTML = '';
+      setMonthlyTotals('—', '—', '—');
 
-      if (!monthStr) return;
+      if (!monthStr) {
+        monthlyIsLoading = false;
+        setMonthlyTotals();
+        tbody.innerHTML = `<tr><td colspan="${columnCount}" class="text-center py-10 text-slate-400">請選擇統計月份</td></tr>`;
+        return;
+      }
 
       const [year, month] = monthStr.split('-');
       const startDate = `${year}-${month}-01`;
@@ -1197,7 +1317,7 @@
       const endDate = `${year}-${month}-${String(lastDay).padStart(2, '0')}`;
 
       try {
-        const { data, error } = await supabaseClient
+        const query = supabaseClient
           .from('order_items')
           .select(`
             order_item_id,
@@ -1214,20 +1334,25 @@
             )
           `)
           .gte('orders.order_date', startDate)
-          .lte('orders.order_date', endDate);
+          .lte('orders.order_date', endDate)
+          .order('order_item_id', { ascending: true });
 
-        if (error) throw error;
-
-        currentMonthlyRawData = data || [];
+        const data = await fetchOrderItemPages(query);
+        if (requestId !== monthlyRequestId) return;
+        monthlyIsLoading = false;
+        currentMonthlyRawData = data;
         renderMonthlyMatrixTable();
 
       } catch (err) {
+        if (requestId !== monthlyRequestId) return;
+        monthlyIsLoading = false;
         console.error('統計載入失敗:', err);
-        tbody.innerHTML = `<tr><td colspan="10" class="text-center py-10 text-red-500">載入失敗: ${err.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="${columnCount}" class="text-center py-10 text-red-500">載入失敗: ${err.message}</td></tr>`;
       }
     }
 
     function renderMonthlyMatrixTable() {
+      if (monthlyIsLoading) return;
       const selectedCat = document.getElementById('filter-monthly-category').value;
       const searchKeyword = document.getElementById('filter-monthly-keyword').value.trim().toLowerCase();
       const tbody = document.getElementById('matrix-tbody');
@@ -1248,18 +1373,16 @@
           headersHtml += `<th class="p-3 text-center border-r text-indigo-800 bg-indigo-50/50 whitespace-nowrap">${s}</th>`;
         });
         headersHtml += `<th class="p-3 text-center bg-amber-50 text-amber-900 font-black whitespace-nowrap">合計實出</th>`;
+        headersHtml += `<th class="p-3 text-center bg-rose-50 text-rose-700 font-black whitespace-nowrap">合計缺貨</th>`;
         headerRow.innerHTML = headersHtml;
       }
 
       if (displayStores.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="text-center py-10 text-slate-400">請勾選至少一間門市以進行月度統計</td></tr>';
+        setMonthlyTotals();
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-10 text-slate-400">請勾選至少一間門市以進行月度統計</td></tr>';
         tfoot.innerHTML = '';
         return;
       }
-
-      let totalActualSum = 0;
-      let totalOrderedSum = 0;
-      let totalShortageSum = 0;
 
       const itemMap = {};
 
@@ -1272,19 +1395,7 @@
         const matchedStore = displayStores.find(s => s.includes(rawStoreName) || rawStoreName.includes(s));
         if (!matchedStore) return;
 
-        const orderedQty = parseInt(row.quantity, 10) || 0;
-        let actualQty = orderedQty;
-        if (row.actual_quantity !== null && row.actual_quantity !== undefined) {
-          actualQty = parseInt(row.actual_quantity, 10);
-        } else if (row.note && row.note.includes('缺')) {
-          const match = row.note.match(/缺(\d+)/);
-          if (match) actualQty = Math.max(0, orderedQty - parseInt(match[1], 10));
-        }
-
-        const shortageQty = Math.max(0, orderedQty - actualQty);
-        totalActualSum += actualQty;
-        totalOrderedSum += orderedQty;
-        totalShortageSum += shortageQty;
+        const { ordered: orderedQty, actual: actualQty, shortage: shortageQty } = getShipmentQuantities(row.quantity, row.actual_quantity, row.note);
 
         if (!itemMap[itemName]) {
           itemMap[itemName] = {
@@ -1292,7 +1403,8 @@
             priority: priority,
             stores: {},
             totalActual: 0,
-            totalOrdered: 0
+            totalOrdered: 0,
+            totalShortage: 0
           };
           displayStores.forEach(s => itemMap[itemName].stores[s] = 0);
         }
@@ -1300,11 +1412,8 @@
         itemMap[itemName].stores[matchedStore] = (itemMap[itemName].stores[matchedStore] || 0) + actualQty;
         itemMap[itemName].totalActual += actualQty;
         itemMap[itemName].totalOrdered += orderedQty;
+        itemMap[itemName].totalShortage += shortageQty;
       });
-
-      document.getElementById('stat-total-actual').innerText = totalActualSum.toLocaleString();
-      document.getElementById('stat-total-ordered').innerText = totalOrderedSum.toLocaleString();
-      document.getElementById('stat-total-shortage').innerText = totalShortageSum.toLocaleString();
 
       let itemsList = Object.keys(itemMap).map(name => ({
         itemName: name,
@@ -1314,6 +1423,12 @@
       if (selectedCat) itemsList = itemsList.filter(i => i.categoryName === selectedCat);
       if (searchKeyword) itemsList = itemsList.filter(i => i.itemName.toLowerCase().includes(searchKeyword));
 
+      setMonthlyTotals(
+        itemsList.reduce((sum, item) => sum + item.totalActual, 0),
+        itemsList.reduce((sum, item) => sum + item.totalOrdered, 0),
+        itemsList.reduce((sum, item) => sum + item.totalShortage, 0)
+      );
+
       itemsList.sort((a, b) => {
         const itemPriority = getItemDisplayPriority(a.itemName) - getItemDisplayPriority(b.itemName);
         if (itemPriority !== 0) return itemPriority;
@@ -1322,7 +1437,7 @@
       });
 
       if (itemsList.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="text-center py-10 text-slate-400">該月份查無出貨數據</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="${displayStores.length + 5}" class="text-center py-10 text-slate-400">該月份查無符合篩選的出貨數據</td></tr>`;
         tfoot.innerHTML = '';
         return;
       }
@@ -1330,12 +1445,14 @@
       const storeColumnSums = {};
       displayStores.forEach(s => storeColumnSums[s] = 0);
       let grandTotalActual = 0;
+      let grandTotalShortage = 0;
 
       tbody.innerHTML = itemsList.map((item, idx) => {
         displayStores.forEach(s => {
           storeColumnSums[s] += (item.stores[s] || 0);
         });
         grandTotalActual += item.totalActual;
+        grandTotalShortage += item.totalShortage;
 
         const storeColsHtml = displayStores.map(s => {
           const qty = item.stores[s] || 0;
@@ -1350,6 +1467,7 @@
             <td class="p-3 text-slate-500 border-r whitespace-nowrap">${item.categoryName}</td>
             ${storeColsHtml}
             <td class="p-3 text-center font-black text-indigo-700 bg-amber-50/50 whitespace-nowrap">${item.totalActual}</td>
+            <td class="p-3 text-center font-black bg-rose-50/60 whitespace-nowrap ${item.totalShortage > 0 ? 'text-rose-700' : 'text-slate-400'}">${item.totalShortage}</td>
           </tr>
         `;
       }).join('');
@@ -1360,9 +1478,10 @@
 
       tfoot.innerHTML = `
         <tr>
-          <td colspan="3" class="p-3 text-right pr-4 border-r font-bold text-slate-700 whitespace-nowrap">各店實際出貨總計：</td>
+          <td colspan="3" class="p-3 text-right pr-4 border-r font-bold text-slate-700 whitespace-nowrap">目前篩選總計：</td>
           ${footStoreCols}
           <td class="p-3 text-center font-black text-indigo-900 bg-amber-100 text-sm whitespace-nowrap">${grandTotalActual}</td>
+          <td class="p-3 text-center font-black text-rose-800 bg-rose-100 text-sm whitespace-nowrap">${grandTotalShortage}</td>
         </tr>
       `;
     }
@@ -1372,12 +1491,12 @@
       const displayStores = TARGET_STORES.filter(s => selectedStoresSet.has(s));
 
       let csvContent = '\uFEFF';
-      csvContent += `品項名稱,商品分類,${displayStores.join(',')},合計實出\n`;
+      csvContent += `品項名稱,商品分類,${displayStores.join(',')},合計實出,合計缺貨\n`;
 
       const rows = document.querySelectorAll('#matrix-tbody tr');
       rows.forEach(tr => {
         const cols = tr.querySelectorAll('td');
-        if (cols.length >= (displayStores.length + 4)) {
+        if (cols.length === (displayStores.length + 5)) {
           const rowData = [
             `"${cols[1].innerText.trim()}"`,
             `"${cols[2].innerText.trim()}"`
@@ -1386,6 +1505,7 @@
             rowData.push(cols[3 + i].innerText.trim().replace('-', '0'));
           }
           rowData.push(cols[3 + displayStores.length].innerText.trim());
+          rowData.push(cols[4 + displayStores.length].innerText.trim());
           csvContent += rowData.join(',') + '\n';
         }
       });
